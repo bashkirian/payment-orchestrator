@@ -6,6 +6,10 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   build-and-lint:
     name: Build and Lint
@@ -13,12 +17,15 @@ jobs:
     container:
       image: ghcr.io/${{ github.repository_owner }}/fintech-builder:latest
       credentials:
-        username: ${{ github.actor }}
+        username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Mark workspace as safe for git (container)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Build
         run: make build
