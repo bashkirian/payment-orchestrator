@@ -7,6 +7,23 @@ TEST_FILES := `go list ./...`
 # Service names
 SERVICES := api orchestrator webhook worker router
 
+COMPOSE_FILE := docker-compose.yml
+COMPOSE_PROJECT := fintech-local
+MIGRATIONS_DIR := db/migrations
+
+POSTGRES_HOST ?= 127.0.0.1
+POSTGRES_PORT ?= 5432
+POSTGRES_ADMIN_USER ?= fintech_admin
+POSTGRES_ADMIN_PASSWORD ?= fintech_admin_change_me
+POSTGRES_APP_DB ?= fintech
+POSTGRES_APP_USER ?= fintech_app
+POSTGRES_APP_PASSWORD ?= fintech_app_change_me
+REDIS_PORT ?= 6379
+REDIS_PASSWORD ?= redis_change_me
+
+GOOSE_IMAGE := ghcr.io/pressly/goose:3.24.1
+GOOSE_DSN := postgres://$(POSTGRES_APP_USER):$(POSTGRES_APP_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_APP_DB)?sslmode=disable
+
 .PHONY: help
 help: ## List of commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
@@ -110,28 +127,35 @@ sqlc-gen: ## Generate SQLC code for all services
 
 # Migration targets
 .PHONY: create-migration
-create-migration: ## Create a new migration (usage: make create-migration name=migration_name svc=api)
-	@if [ -z "$(svc)" ]; then \
-		echo "Error: svc parameter is required. Usage: make create-migration name=my_migration svc=api"; \
+create-migration: ## Create a new migration (usage: make create-migration name=add_users_table)
+	@if [ -z "$(name)" ]; then \
+		echo "Error: name parameter is required. Usage: make create-migration name=add_users_table"; \
 		exit 1; \
 	fi
-	goose -dir services/$(svc)/contracts/pgsql/migrations create $(name) sql
+	docker run --rm \
+		-v $(ROOT_APP_DIR)/$(MIGRATIONS_DIR):/migrations \
+		$(GOOSE_IMAGE) -dir /migrations create $(name) sql
 
 .PHONY: migrate-up
-migrate-up: ## Run migrations up (usage: make migrate-up svc=api)
-	@if [ -z "$(svc)" ]; then \
-		echo "Error: svc parameter is required. Usage: make migrate-up svc=api"; \
-		exit 1; \
-	fi
-	goose -dir services/$(svc)/contracts/pgsql/migrations up
+migrate-up: ## Run migrations up against local Postgres
+	docker run --rm \
+		--network fintech_local_net \
+		-v $(ROOT_APP_DIR)/$(MIGRATIONS_DIR):/migrations \
+		$(GOOSE_IMAGE) -dir /migrations postgres "$(GOOSE_DSN)" up
 
 .PHONY: migrate-down
-migrate-down: ## Run migrations down (usage: make migrate-down svc=api)
-	@if [ -z "$(svc)" ]; then \
-		echo "Error: svc parameter is required. Usage: make migrate-down svc=api"; \
-		exit 1; \
-	fi
-	goose -dir services/$(svc)/contracts/pgsql/migrations down
+migrate-down: ## Roll back one migration against local Postgres
+	docker run --rm \
+		--network fintech_local_net \
+		-v $(ROOT_APP_DIR)/$(MIGRATIONS_DIR):/migrations \
+		$(GOOSE_IMAGE) -dir /migrations postgres "$(GOOSE_DSN)" down
+
+.PHONY: migrate-status
+migrate-status: ## Show migration status against local Postgres
+	docker run --rm \
+		--network fintech_local_net \
+		-v $(ROOT_APP_DIR)/$(MIGRATIONS_DIR):/migrations \
+		$(GOOSE_IMAGE) -dir /migrations postgres "$(GOOSE_DSN)" status
 
 # Mock generation
 .PHONY: mocks
@@ -160,17 +184,30 @@ format: ## Install and run goimports
 	@echo "Done"
 
 # Docker targets
+.PHONY: up
+up: ## Start Postgres and Redis and wait until both are healthy
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) up -d --wait postgres redis
+	@echo "Dependencies are healthy and reachable: Postgres on localhost:$(POSTGRES_PORT), Redis on localhost:$(REDIS_PORT)."
+
+.PHONY: down
+down: ## Stop local dependencies
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) down
+
+.PHONY: reset
+reset: ## Stop dependencies and delete persistent volumes
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) down -v
+
 .PHONY: local-up
 local-up: ## Start local development environment
-	docker-compose -f deploy/docker-compose-local.yml up -d
+	$(MAKE) up
 
 .PHONY: local-down
 local-down: ## Stop local development environment
-	docker-compose -f deploy/docker-compose-local.yml down
+	$(MAKE) down
 
 .PHONY: local-logs
 local-logs: ## Show logs for local environment
-	docker-compose -f deploy/docker-compose-local.yml logs -f
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) logs -f
 
 # Helm targets
 .PHONY: helm-install
