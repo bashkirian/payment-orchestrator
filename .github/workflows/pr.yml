@@ -57,18 +57,8 @@ jobs:
 
       - name: Install Goose CLI
         run: |
-          set -e
-        
-          GOOSE_VERSION=$(curl -s https://api.github.com/repos/pressly/goose/releases/latest | jq -r .tag_name)
-          echo "Latest goose version: $GOOSE_VERSION"
-        
-          FILE="goose_${GOOSE_VERSION#v}_linux_x86_64.tar.gz"
-        
-          curl -fL "https://github.com/pressly/goose/releases/download/${GOOSE_VERSION}/${FILE}" -o goose.tar.gz
-        
-          tar -xzf goose.tar.gz
-          chmod +x goose
-          sudo mv goose /usr/local/bin/
+          go install github.com/pressly/goose/v3/cmd/goose@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Run migrations
         run: |
