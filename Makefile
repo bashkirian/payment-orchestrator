@@ -21,7 +21,7 @@ POSTGRES_APP_PASSWORD ?= fintech_app_change_me
 REDIS_PORT ?= 6379
 REDIS_PASSWORD ?= redis_change_me
 
-GOOSE_IMAGE := ghcr.io/pressly/goose:3.24.1
+GOOSE_IMAGE := pressly/goose:latest
 GOOSE_DSN := postgres://$(POSTGRES_APP_USER):$(POSTGRES_APP_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_APP_DB)?sslmode=disable
 
 .PHONY: help
