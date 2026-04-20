@@ -32,3 +32,48 @@ jobs:
 
       - name: Lint
         run: make lint
+
+  integration-deps-and-migrations:
+    name: Dependencies, Migrations and Docker Build
+    runs-on: ubuntu-latest
+    needs: build-and-lint
+    env:
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: 5432
+      POSTGRES_ADMIN_USER: fintech_admin
+      POSTGRES_ADMIN_PASSWORD: fintech_admin_change_me
+      POSTGRES_APP_DB: fintech
+      POSTGRES_APP_USER: fintech_app
+      POSTGRES_APP_PASSWORD: fintech_app_change_me
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: redis_change_me
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start Postgres and Redis
+        run: make up
+
+      - name: Install Goose CLI
+        run: |
+          go install github.com/pressly/goose/v3/cmd/goose@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Run migrations
+        run: |
+          goose -dir db/migrations postgres "postgres://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_APP_DB}?sslmode=disable" up
+
+      - name: Show migration status
+        run: |
+          goose -dir db/migrations postgres "postgres://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_APP_DB}?sslmode=disable" status
+
+      - name: Build Docker image
+        run: docker build -t fintech-app:pr .
+
+      - name: Future app container hook
+        run: echo "App container run is intentionally deferred; add service startup validation here when the runtime contract is defined."
+
+      - name: Stop local dependencies
+        if: always()
+        run: make down
