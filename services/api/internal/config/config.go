@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -20,6 +22,9 @@ type Config struct {
 
 func Load() (Config, error) {
 	var err error
+
+	// Best-effort local development support. Real environment variables still win.
+	_ = godotenv.Load()
 
 	cfg := Config{
 		Env:      getEnv("API_ENV", "development"),

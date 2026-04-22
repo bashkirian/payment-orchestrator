@@ -97,7 +97,15 @@ build-race: ## Build all services with race flag
 # Run targets
 .PHONY: run-api
 run-api: ## Run API service
-	./bin/api start --config ./deploy/configs/api-local.yaml
+	./bin/api
+
+.PHONY: api-up
+api-up: ## Start API and its local dependencies in Docker Compose
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) up -d --wait postgres redis api
+
+.PHONY: api-logs
+api-logs: ## Show logs for API and its dependencies
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) logs -f api postgres redis
 
 .PHONY: run-orchestrator
 run-orchestrator: ## Run Orchestrator service
@@ -199,7 +207,7 @@ reset: ## Stop dependencies and delete persistent volumes
 
 .PHONY: local-up
 local-up: ## Start local development environment
-	$(MAKE) up
+	$(MAKE) api-up
 
 .PHONY: local-down
 local-down: ## Stop local development environment

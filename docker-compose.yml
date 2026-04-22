@@ -1,4 +1,29 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: ./services/api/Dockerfile
+    container_name: fintech-api
+    restart: unless-stopped
+    environment:
+      API_ENV: ${API_ENV}
+      API_HTTP_ADDR: ${API_HTTP_ADDR}
+      API_LOG_LEVEL: ${API_LOG_LEVEL}
+      API_READ_TIMEOUT: ${API_READ_TIMEOUT}
+      API_READ_HEADER_TIMEOUT: ${API_READ_HEADER_TIMEOUT}
+      API_WRITE_TIMEOUT: ${API_WRITE_TIMEOUT}
+      API_IDLE_TIMEOUT: ${API_IDLE_TIMEOUT}
+      API_SHUTDOWN_TIMEOUT: ${API_SHUTDOWN_TIMEOUT}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - fintech_local_net
+
   postgres:
     image: postgres:16.3-alpine
     container_name: fintech-postgres
