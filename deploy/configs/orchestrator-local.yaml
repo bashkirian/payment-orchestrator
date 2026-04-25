@@ -1,0 +1,5 @@
+env: development
+log_level: info
+grpc_addr: ":50051"
+http_addr: ":8081"
+shutdown_timeout: 10s

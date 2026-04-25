@@ -1,0 +1,39 @@
+package grpc
+
+import (
+	"net"
+
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
+)
+
+// Server wraps a gRPC server with health checking and reflection.
+type Server struct {
+	srv *grpc.Server
+	log *zap.Logger
+}
+
+func New(log *zap.Logger) *Server {
+	srv := grpc.NewServer()
+
+	healthSvc := health.NewServer()
+	grpc_health_v1.RegisterHealthServer(srv, healthSvc)
+	healthSvc.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+
+	reflection.Register(srv)
+
+	return &Server{srv: srv, log: log}
+}
+
+func (s *Server) Serve(lis net.Listener) error {
+	s.log.Info("starting grpc server", zap.String("addr", lis.Addr().String()))
+	return s.srv.Serve(lis)
+}
+
+func (s *Server) GracefulStop() {
+	s.log.Info("stopping grpc server")
+	s.srv.GracefulStop()
+}
