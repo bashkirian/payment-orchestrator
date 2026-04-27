@@ -53,7 +53,7 @@ jobs:
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
     env:
-      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_HOST: fintech-postgres
       POSTGRES_PORT: 5432
       POSTGRES_ADMIN_USER: fintech_admin
       POSTGRES_ADMIN_PASSWORD: fintech_admin_change_me
@@ -72,6 +72,9 @@ jobs:
 
       - name: Start Postgres and Redis
         run: make up
+
+      - name: Connect job container to fintech network
+        run: docker network connect fintech_local_net $(hostname)
 
       - name: Run migrations
         run: |
