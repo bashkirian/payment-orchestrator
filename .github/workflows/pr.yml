@@ -71,7 +71,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Start Postgres and Redis
-        run: make up
+        run: make reset || true && make up
 
       - name: Connect job container to fintech network
         run: docker network connect fintech_local_net $(hostname)
