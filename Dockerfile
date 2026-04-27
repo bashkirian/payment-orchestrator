@@ -1,4 +1,3 @@
-# Builder image — built for linux/amd64 and linux/arm64
 FROM golang:1.26-alpine
 
 RUN apk add --no-cache \
