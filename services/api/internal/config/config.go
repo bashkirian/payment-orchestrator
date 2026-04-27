@@ -13,6 +13,7 @@ type Config struct {
 	Env               string
 	HTTPAddr          string
 	LogLevel          string
+	OrchestratorAddr  string
 	ReadTimeout       time.Duration
 	ReadHeaderTimeout time.Duration
 	WriteTimeout      time.Duration
@@ -27,9 +28,10 @@ func Load() (Config, error) {
 	_ = godotenv.Load()
 
 	cfg := Config{
-		Env:      getEnv("API_ENV", "development"),
-		HTTPAddr: getEnv("API_HTTP_ADDR", ":8080"),
-		LogLevel: getEnv("API_LOG_LEVEL", "info"),
+		Env:              getEnv("API_ENV", "development"),
+		HTTPAddr:         getEnv("API_HTTP_ADDR", ":8080"),
+		LogLevel:         getEnv("API_LOG_LEVEL", "info"),
+		OrchestratorAddr: getEnv("API_ORCHESTRATOR_ADDR", "localhost:50051"),
 	}
 
 	if cfg.ReadTimeout, err = getDurationEnv("API_READ_TIMEOUT", 5*time.Second); err != nil {

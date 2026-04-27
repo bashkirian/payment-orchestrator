@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/bashkirian/fintech-project/services/api/internal/config"
+	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
 	apihttp "github.com/bashkirian/fintech-project/services/api/internal/http"
 	"github.com/bashkirian/fintech-project/services/api/internal/logger"
 )
@@ -32,7 +33,13 @@ func run() error {
 		_ = log.Sync()
 	}()
 
-	handler := apihttp.NewRouter(log)
+	orchestratorClient, err := apigrpc.NewOrchestratorClient(cfg.OrchestratorAddr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = orchestratorClient.Close() }()
+
+	handler := apihttp.NewRouter(log, orchestratorClient)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,

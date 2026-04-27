@@ -116,11 +116,20 @@ run-webhook: ## Run Webhook service
 	./bin/webhook start --config ./deploy/configs/webhook-local.yaml
 
 # Proto generation
+MODULE := github.com/bashkirian/fintech-project
+GOPATH_BIN := $(shell go env GOPATH)/bin
+
 .PHONY: proto-gen
-proto-gen: ## Generate code from proto files
-	@for proto in $(shell find ./proto -name "*.proto"); do \
+proto-gen: ## Generate Go code from all proto files into libs/genproto/
+	@find ./proto -name "*.proto" | while read proto; do \
 		echo "Generating $$proto..."; \
-		protoc --go_out=. --go-grpc_out=. $$proto; \
+		protoc \
+			--plugin=protoc-gen-go="$(GOPATH_BIN)/protoc-gen-go" \
+			--plugin=protoc-gen-go-grpc="$(GOPATH_BIN)/protoc-gen-go-grpc" \
+			--go_out=. --go_opt=module=$(MODULE) \
+			--go-grpc_out=. --go-grpc_opt=module=$(MODULE) \
+			--proto_path=proto \
+			$$proto; \
 	done
 
 # SQLC generation
