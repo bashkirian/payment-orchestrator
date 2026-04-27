@@ -2,9 +2,6 @@ name: Build Builder Image
 
 on:
   push:
-    branches:
-      - main
-      - master
     paths:
       - Dockerfile
   workflow_dispatch:
