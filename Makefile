@@ -138,7 +138,7 @@ sqlc-gen: ## Generate SQLC code for all services
 	@for svc in $(SERVICES); do \
 		if [ -f services/$$svc/contracts/pgsql/sqlc/sqlc.yaml ]; then \
 			echo "Generating SQLC for $$svc..."; \
-			cd services/$$svc && sqlc generate && cd ../..; \
+			cd services/$$svc && sqlc generate -f contracts/pgsql/sqlc/sqlc.yaml && cd ../..; \
 		fi; \
 	done
 
