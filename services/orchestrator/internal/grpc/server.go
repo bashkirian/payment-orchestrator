@@ -8,6 +8,8 @@ import (
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
+
+	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
 )
 
 // Server wraps a gRPC server with health checking and reflection.
@@ -18,6 +20,8 @@ type Server struct {
 
 func New(log *zap.Logger) *Server {
 	srv := grpc.NewServer()
+
+	orchestratorv1.RegisterPayoutServiceServer(srv, newPayoutServiceServer(log))
 
 	healthSvc := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(srv, healthSvc)

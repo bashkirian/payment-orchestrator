@@ -27,6 +27,14 @@ jobs:
       - name: Mark workspace as safe for git (container)
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Add Go bin to PATH for protoc plugins
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Check proto generated code is up to date
+        run: |
+          make proto-gen
+          git diff --exit-code libs/genproto/
+
       - name: Build
         run: make build
 
@@ -52,8 +60,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Mark workspace as safe for git (container)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Start Postgres and Redis
-        run: make up
+        run: make reset || true && make up
 
       - name: Install Goose CLI
         run: |

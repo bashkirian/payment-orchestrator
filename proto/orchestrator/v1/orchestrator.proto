@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package orchestrator.v1;
+
+option go_package = "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1;orchestratorv1";
+
+service PayoutService {
+  rpc CreatePayout(CreatePayoutRequest) returns (CreatePayoutResponse);
+  rpc GetPayout(GetPayoutRequest) returns (GetPayoutResponse);
+  rpc CancelPayout(CancelPayoutRequest) returns (CancelPayoutResponse);
+  // Stub: called by provider webhook to propagate status updates.
+  rpc ApplyProviderUpdate(ApplyProviderUpdateRequest) returns (ApplyProviderUpdateResponse);
+}
+
+// ── CreatePayout ──────────────────────────────────────────────────────────────
+
+message CreatePayoutRequest {
+  string payout_id = 1;  // idempotency key supplied by caller
+  int64  amount    = 2;  // minor units (e.g. cents)
+  string currency  = 3;  // ISO-4217 code
+  string provider  = 4;  // routing hint
+}
+
+message CreatePayoutResponse {
+  string payout_id = 1;
+  string status    = 2;  // e.g. "PENDING"
+}
+
+// ── GetPayout ─────────────────────────────────────────────────────────────────
+
+message GetPayoutRequest {
+  string payout_id = 1;
+}
+
+message GetPayoutResponse {
+  string payout_id = 1;
+  string status    = 2;
+  int64  amount    = 3;
+  string currency  = 4;
+  string provider  = 5;
+}
+
+// ── CancelPayout ──────────────────────────────────────────────────────────────
+
+message CancelPayoutRequest {
+  string payout_id = 1;
+}
+
+message CancelPayoutResponse {
+  bool success = 1;
+}
+
+// ── ApplyProviderUpdate ───────────────────────────────────────────────────────
+
+message ApplyProviderUpdateRequest {
+  string payout_id           = 1;
+  string provider_status     = 2;
+  string provider_reference  = 3;
+}
+
+message ApplyProviderUpdateResponse {
+  bool success = 1;
+}
