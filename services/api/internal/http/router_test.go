@@ -5,19 +5,18 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
 func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
-	router := NewRouter(zap.NewNop(), nil)
+	router := NewRouterWithClient(zap.NewNop(), nil)
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	recorder := httptest.NewRecorder()
 
 	router.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
-	}
+	require.Equal(t, http.StatusOK, recorder.Code)
 }

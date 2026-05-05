@@ -1,19 +1,36 @@
 package http
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
-	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
+	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
 )
 
+// PayoutClient is an interface for the payout gRPC client.
+// This allows mocking in tests while the real implementation uses *apigrpc.OrchestratorClient.
+type PayoutClient interface {
+	CreatePayout(ctx context.Context, in *orchestratorv1.CreatePayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CreatePayoutResponse, error)
+}
+
 func NewRouter(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient) http.Handler {
+	return NewRouterWithClient(log, orchestrator.Payout)
+}
+
+// NewRouterWithClient creates a router with a PayoutClient interface for testing.
+func NewRouterWithClient(log *zap.Logger, client PayoutClient) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
@@ -25,33 +42,65 @@ func NewRouter(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient) http.H
 		_, _ = writer.Write([]byte(`{"status":"ok"}`))
 	})
 
-	router.Post("/v1/payouts", createPayoutHandler(log, orchestrator))
+	router.Post("/v1/payouts", createPayoutHandlerWithClient(log, client))
 
 	return router
 }
 
 type createPayoutRequest struct {
-	PayoutID string `json:"payout_id"`
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
-	Provider string `json:"provider"`
+	Rail     string `json:"rail"`
+}
+
+// canonicalHash returns a stable SHA-256 hex string over the request fields.
+func canonicalHash(amount int64, currency, rail string) string {
+	// Manual canonical form avoids map-iteration order issues.
+	canonical := fmt.Sprintf(`{"amount":%d,"currency":%q,"rail":%q}`, amount, currency, rail)
+	sum := sha256.Sum256([]byte(canonical))
+	return fmt.Sprintf("%x", sum)
 }
 
 func createPayoutHandler(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient) http.HandlerFunc {
+	return createPayoutHandlerWithClient(log, orchestrator.Payout)
+}
+
+func createPayoutHandlerWithClient(log *zap.Logger, client PayoutClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		idempotencyKey := r.Header.Get("Idempotency-Key")
+		if idempotencyKey == "" {
+			http.Error(w, `{"error":"Idempotency-Key header is required"}`, http.StatusBadRequest)
+			return
+		}
+
 		var body createPayoutRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 			return
 		}
+		if body.Amount <= 0 {
+			http.Error(w, `{"error":"amount must be positive"}`, http.StatusBadRequest)
+			return
+		}
+		if body.Rail == "" {
+			http.Error(w, `{"error":"rail is required"}`, http.StatusBadRequest)
+			return
+		}
 
-		resp, err := orchestrator.Payout.CreatePayout(r.Context(), &orchestratorv1.CreatePayoutRequest{
-			PayoutId: body.PayoutID,
-			Amount:   body.Amount,
-			Currency: body.Currency,
-			Provider: body.Provider,
+		requestHash := canonicalHash(body.Amount, body.Currency, body.Rail)
+
+		resp, err := client.CreatePayout(r.Context(), &orchestratorv1.CreatePayoutRequest{
+			IdempotencyKey: idempotencyKey,
+			RequestHash:    requestHash,
+			Amount:         body.Amount,
+			Currency:       body.Currency,
+			Rail:           body.Rail,
 		})
 		if err != nil {
+			if st, ok := status.FromError(err); ok && st.Code() == codes.AlreadyExists {
+				http.Error(w, `{"error":"idempotency key reused with different request"}`, http.StatusConflict)
+				return
+			}
 			log.Error("CreatePayout failed", zap.Error(err))
 			http.Error(w, `{"error":"upstream error"}`, http.StatusBadGateway)
 			return
