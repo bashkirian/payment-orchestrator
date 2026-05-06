@@ -6,12 +6,13 @@ on:
       - main
       - master
     paths:
-      - Dockerfile          # only rebuild when the builder definition changes
-  workflow_dispatch:        # allow manual trigger (e.g. after a protoc version bump)
+      - Dockerfile
+      - .protoc-version   # also rebuild when protoc version changes
+  workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write           # needed to push to ghcr.io
+  packages: write
 
 jobs:
   build-and-push:
@@ -37,7 +38,6 @@ jobs:
         with:
           context: .
           push: true
-          # Tag as :latest (used by pr.yml) and as :<sha> for traceability
           tags: |
             ghcr.io/${{ github.repository_owner }}/fintech-builder:latest
             ghcr.io/${{ github.repository_owner }}/fintech-builder:${{ github.sha }}

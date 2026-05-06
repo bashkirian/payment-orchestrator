@@ -8,10 +8,10 @@ RUN apk add --no-cache \
     docker-cli \
     docker-cli-compose
 
-# Install protoc from official release (apk protobuf only ships the runtime library, not the compiler).
-# Pin to the exact version used by developers (libprotoc 34.1 → header "v7.34.1").
-# To upgrade: change PROTOC_VERSION here, rebuild+push the builder image, then re-run make proto-gen locally.
-RUN PROTOC_VERSION=34.1 && \
+# Install protoc. Version is pinned in .protoc-version at the repo root.
+# To upgrade: change .protoc-version, rebuild+push the builder image, re-run make proto-gen locally.
+COPY .protoc-version /tmp/.protoc-version
+RUN PROTOC_VERSION=$(cat /tmp/protoc-version 2>/dev/null || cat /tmp/.protoc-version) && \
     ARCH=$(uname -m) && \
     case "$ARCH" in \
       x86_64)  PROTOC_ARCH="linux-x86_64" ;; \
