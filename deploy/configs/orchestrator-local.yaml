@@ -3,3 +3,4 @@ log_level: info
 grpc_addr: ":50051"
 http_addr: ":8081"
 shutdown_timeout: 10s
+database_url: "postgres://fintech_app:fintech_app_change_me@localhost:5432/fintech?sslmode=disable"

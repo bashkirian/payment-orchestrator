@@ -14,6 +14,7 @@ type Config struct {
 	GRPCAddr        string        `yaml:"grpc_addr"`
 	HTTPAddr        string        `yaml:"http_addr"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+	DatabaseURL     string        `yaml:"database_url"`
 }
 
 func Load(path string) (Config, error) {

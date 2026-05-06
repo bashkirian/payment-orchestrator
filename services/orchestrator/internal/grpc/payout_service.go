@@ -2,35 +2,131 @@ package grpc
 
 import (
 	"context"
+	"errors"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/postgres"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/sqlcgen"
 )
 
-// PayoutServiceServer implements orchestratorv1.PayoutServiceServer.
-// All methods are stubs that return deterministic dummy responses; real
-// business logic will be layered in once persistence and domain packages exist.
-type PayoutServiceServer struct {
-	orchestratorv1.UnimplementedPayoutServiceServer
-	log *zap.Logger
+// errIdempotencyKeyExists is a sentinel used to signal a key conflict inside RunInTx.
+var errIdempotencyKeyExists = errors.New("idempotency key already exists")
+
+// txResult carries data captured inside the transaction closure.
+type txResult struct {
+	newPayout   domain.Payout
+	existingKey domain.IdempotencyKey
+	inserted    bool
 }
 
-func newPayoutServiceServer(log *zap.Logger) *PayoutServiceServer {
-	return &PayoutServiceServer{log: log}
+// PayoutServiceServer implements orchestratorv1.PayoutServiceServer.
+type PayoutServiceServer struct {
+	orchestratorv1.UnimplementedPayoutServiceServer
+	log        *zap.Logger
+	pool       *pgxpool.Pool
+	payoutRepo domain.PayoutRepository
+}
+
+func newPayoutServiceServer(log *zap.Logger, pool *pgxpool.Pool) *PayoutServiceServer {
+	return &PayoutServiceServer{
+		log:        log,
+		pool:       pool,
+		payoutRepo: postgres.NewPayoutRepo(sqlcgen.New(pool)),
+	}
+}
+
+// railToProvider maps a payment rail to its default provider.
+func railToProvider(rail domain.Rail) domain.Provider {
+	switch rail {
+	case domain.RailCrypto:
+		return domain.ProviderCryptoSim
+	default:
+		return domain.ProviderStripe
+	}
 }
 
 func (s *PayoutServiceServer) CreatePayout(
 	ctx context.Context,
 	req *orchestratorv1.CreatePayoutRequest,
 ) (*orchestratorv1.CreatePayoutResponse, error) {
-	s.log.Info("CreatePayout stub", zap.String("payout_id", req.GetPayoutId()))
-	return &orchestratorv1.CreatePayoutResponse{
-		PayoutId: req.GetPayoutId(),
-		Status:   "PENDING",
-	}, nil
+	if req.GetIdempotencyKey() == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+	if req.GetRequestHash() == "" {
+		return nil, status.Error(codes.InvalidArgument, "request_hash is required")
+	}
+
+	s.log.Info("CreatePayout",
+		zap.String("idempotency_key", req.GetIdempotencyKey()),
+		zap.Int64("amount", req.GetAmount()),
+		zap.String("currency", req.GetCurrency()),
+		zap.String("rail", req.GetRail()),
+	)
+
+	var result txResult
+
+	txErr := postgres.RunInTx(ctx, s.pool, func(ctx context.Context, q sqlcgen.Querier) error {
+		rail := domain.Rail(req.GetRail())
+
+		payout, err := postgres.NewPayoutRepo(q).CreatePayout(ctx, domain.CreatePayoutParams{
+			State:       domain.PayoutStateCreated,
+			AmountCents: req.GetAmount(),
+			Currency:    req.GetCurrency(),
+			Rail:        rail,
+			Provider:    railToProvider(rail),
+		})
+		if err != nil {
+			return err
+		}
+
+		key, inserted, err := postgres.NewIdempotencyRepo(q).TryInsertIdempotencyKey(
+			ctx, req.GetIdempotencyKey(), req.GetRequestHash(), payout.ID,
+		)
+		if err != nil {
+			return err
+		}
+
+		result = txResult{newPayout: payout, existingKey: key, inserted: inserted}
+		if !inserted {
+			// Signal rollback of the optimistically created payout.
+			return errIdempotencyKeyExists
+		}
+		return nil
+	})
+
+	switch {
+	case txErr == nil:
+		// Happy path: new payout created.
+		return &orchestratorv1.CreatePayoutResponse{
+			PayoutId: result.newPayout.ID.String(),
+			Status:   string(result.newPayout.State),
+		}, nil
+
+	case errors.Is(txErr, errIdempotencyKeyExists):
+		// Key already exists – check whether this is a replay or a conflict.
+		if result.existingKey.RequestHash != req.GetRequestHash() {
+			return nil, status.Error(codes.AlreadyExists, "idempotency key reused with different request")
+		}
+		// Same hash: return the existing payout.
+		existing, err := s.payoutRepo.GetPayout(ctx, result.existingKey.PayoutID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "fetch existing payout: %v", err)
+		}
+		s.log.Info("idempotent replay", zap.String("payout_id", existing.ID.String()))
+		return &orchestratorv1.CreatePayoutResponse{
+			PayoutId: existing.ID.String(),
+			Status:   string(existing.State),
+		}, nil
+
+	default:
+		return nil, status.Errorf(codes.Internal, "create payout: %v", txErr)
+	}
 }
 
 func (s *PayoutServiceServer) GetPayout(

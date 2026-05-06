@@ -10,6 +10,7 @@ import (
 type PayoutState string
 
 const (
+	PayoutStateCreated    PayoutState = "created"
 	PayoutStatePending    PayoutState = "pending"
 	PayoutStateProcessing PayoutState = "processing"
 	PayoutStateCompleted  PayoutState = "completed"
