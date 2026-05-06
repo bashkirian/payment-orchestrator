@@ -61,10 +61,6 @@ func canonicalHash(amount int64, currency, rail string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-func createPayoutHandler(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient) http.HandlerFunc {
-	return createPayoutHandlerWithClient(log, orchestrator.Payout)
-}
-
 func createPayoutHandlerWithClient(log *zap.Logger, client PayoutClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idempotencyKey := r.Header.Get("Idempotency-Key")

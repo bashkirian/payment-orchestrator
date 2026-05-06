@@ -358,6 +358,8 @@ func TestCreatePayout_MultipleConcurrentRequests(t *testing.T) {
 		}
 	}
 
+	require.Empty(t, errs, "no goroutine should have returned an error")
+
 	// All successful responses should have the same payout ID
 	assert.Len(t, payoutIDs, 1, "all successful requests should return same payout ID")
 	for id, count := range payoutIDs {

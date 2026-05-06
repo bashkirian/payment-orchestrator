@@ -269,11 +269,11 @@ func TestCreatePayout_RequestHashComputedCorrectly(t *testing.T) {
 
 	for _, r := range requests {
 		body := bytes.NewBufferString("")
-		json.NewEncoder(body).Encode(map[string]interface{}{
+		require.NoError(t, json.NewEncoder(body).Encode(map[string]interface{}{
 			"amount":   r.amount,
 			"currency": r.currency,
 			"rail":     r.rail,
-		})
+		}))
 
 		req := httptest.NewRequest(http.MethodPost, "/v1/payouts", body)
 		req.Header.Set("Idempotency-Key", "key-"+r.rail+"-"+r.currency)
