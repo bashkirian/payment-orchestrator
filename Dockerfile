@@ -23,8 +23,13 @@ RUN PROTOC_VERSION=$(cat /tmp/protoc-version 2>/dev/null || cat /tmp/.protoc-ver
     unzip -q /tmp/protoc.zip -d /usr/local && \
     rm /tmp/protoc.zip
 
-# Install golangci-lint
-RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin
+COPY .golangci-version /tmp/.golangci-version
+
+# Install golangci-lint. Version is pinned in .golangci-version at the repo root.
+# To upgrade: change .golangci-version, rebuild+push the builder image.
+RUN GOLANGCI_VERSION=$(cat /tmp/.golangci-version) && \
+    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+      | sh -s -- -b /usr/local/bin "${GOLANGCI_VERSION}"
 
 # Install protoc Go plugins
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest \
