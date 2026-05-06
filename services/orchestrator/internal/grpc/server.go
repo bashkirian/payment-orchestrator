@@ -3,6 +3,7 @@ package grpc
 import (
 	"net"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -18,10 +19,10 @@ type Server struct {
 	log *zap.Logger
 }
 
-func New(log *zap.Logger) *Server {
+func New(log *zap.Logger, pool *pgxpool.Pool) *Server {
 	srv := grpc.NewServer()
 
-	orchestratorv1.RegisterPayoutServiceServer(srv, newPayoutServiceServer(log))
+	orchestratorv1.RegisterPayoutServiceServer(srv, newPayoutServiceServer(log, pool))
 
 	healthSvc := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(srv, healthSvc)

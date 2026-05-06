@@ -8,8 +8,10 @@ RUN apk add --no-cache \
     docker-cli \
     docker-cli-compose
 
-# Install protoc from official release (apk protobuf only ships the runtime library, not the compiler)
-RUN PROTOC_VERSION=29.3 && \
+# Install protoc. Version is pinned in .protoc-version at the repo root.
+# To upgrade: change .protoc-version, rebuild+push the builder image, re-run make proto-gen locally.
+COPY .protoc-version /tmp/.protoc-version
+RUN PROTOC_VERSION=$(cat /tmp/protoc-version 2>/dev/null || cat /tmp/.protoc-version) && \
     ARCH=$(uname -m) && \
     case "$ARCH" in \
       x86_64)  PROTOC_ARCH="linux-x86_64" ;; \
@@ -21,8 +23,13 @@ RUN PROTOC_VERSION=29.3 && \
     unzip -q /tmp/protoc.zip -d /usr/local && \
     rm /tmp/protoc.zip
 
-# Install golangci-lint
-RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin
+COPY .golangci-version /tmp/.golangci-version
+
+# Install golangci-lint. Version is pinned in .golangci-version at the repo root.
+# To upgrade: change .golangci-version, rebuild+push the builder image.
+RUN GOLANGCI_VERSION=$(cat /tmp/.golangci-version) && \
+    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+      | sh -s -- -b /usr/local/bin "${GOLANGCI_VERSION}"
 
 # Install protoc Go plugins
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest \

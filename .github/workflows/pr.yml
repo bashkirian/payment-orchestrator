@@ -11,6 +11,51 @@ permissions:
   packages: read
 
 jobs:
+  proto-gen-check:
+    name: Proto Generated Code Check
+    runs-on: ubuntu-latest
+    # Intentionally NOT using the builder container — protoc is installed
+    # directly from .protoc-version so this check is never stale due to image caching.
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read protoc version
+        id: protoc_version
+        run: echo "version=$(cat .protoc-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install protoc
+        run: |
+          PROTOC_VERSION="${{ steps.protoc_version.outputs.version }}"
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)  PROTOC_ARCH="linux-x86_64" ;;
+            aarch64) PROTOC_ARCH="linux-aarch_64" ;;
+            *) echo "Unsupported arch: $ARCH" && exit 1 ;;
+          esac
+          curl -sSL "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-${PROTOC_ARCH}.zip" \
+            -o /tmp/protoc.zip
+          sudo unzip -q /tmp/protoc.zip -d /usr/local
+          rm /tmp/protoc.zip
+          protoc --version
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install protoc Go plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Regenerate proto and check for diff
+        run: |
+          make proto-gen
+          git diff --exit-code libs/genproto/
+
   build-and-lint:
     name: Build and Lint
     runs-on: ubuntu-latest
@@ -29,11 +74,6 @@ jobs:
 
       - name: Add Go bin to PATH for protoc plugins
         run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-      - name: Check proto generated code is up to date
-        run: |
-          make proto-gen
-          git diff --exit-code libs/genproto/
 
       - name: Build
         run: make build

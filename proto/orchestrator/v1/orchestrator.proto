@@ -15,10 +15,11 @@ service PayoutService {
 // ── CreatePayout ──────────────────────────────────────────────────────────────
 
 message CreatePayoutRequest {
-  string payout_id = 1;  // idempotency key supplied by caller
-  int64  amount    = 2;  // minor units (e.g. cents)
-  string currency  = 3;  // ISO-4217 code
-  string provider  = 4;  // routing hint
+  string idempotency_key = 1;  // Idempotency-Key header value
+  string request_hash    = 2;  // SHA-256 of canonical request body
+  int64  amount          = 3;  // minor units (e.g. cents)
+  string currency        = 4;  // ISO-4217 code
+  string rail            = 5;  // payment rail (card, crypto, …)
 }
 
 message CreatePayoutResponse {
