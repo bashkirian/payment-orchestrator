@@ -388,227 +388,227 @@ func TestCreatePayout_MissingCurrency(t *testing.T) {
 // ── GET /v1/payouts/{id} ──────────────────────────────────────────────────────
 
 func TestGetPayout_Success(t *testing.T) {
-payoutID := "550e8400-e29b-41d4-a716-446655440000"
+	payoutID := "550e8400-e29b-41d4-a716-446655440000"
 
-mockClient := &mockPayoutClient{
-getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
-assert.Equal(t, payoutID, in.GetPayoutId())
-return &orchestratorv1.GetPayoutResponse{
-PayoutId: payoutID,
-Status:   "created",
-Amount:   7500,
-Currency: "USD",
-Rail:     "card",
-Provider: "stripe",
-}, nil
-},
-}
+	mockClient := &mockPayoutClient{
+		getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
+			assert.Equal(t, payoutID, in.GetPayoutId())
+			return &orchestratorv1.GetPayoutResponse{
+				PayoutId: payoutID,
+				Status:   "created",
+				Amount:   7500,
+				Currency: "USD",
+				Rail:     "card",
+				Provider: "stripe",
+			}, nil
+		},
+	}
 
-router := NewRouterWithClient(zap.NewNop(), mockClient)
-req := httptest.NewRequest(http.MethodGet, "/v1/payouts/"+payoutID, nil)
-rec := httptest.NewRecorder()
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/"+payoutID, nil)
+	rec := httptest.NewRecorder()
 
-router.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-require.Equal(t, http.StatusOK, rec.Code)
-assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
-var resp map[string]interface{}
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-assert.Equal(t, payoutID, resp["payout_id"])
-assert.Equal(t, "created", resp["status"])
-assert.Equal(t, float64(7500), resp["amount"])
-assert.Equal(t, "USD", resp["currency"])
-assert.Equal(t, "card", resp["rail"])
-assert.Equal(t, "stripe", resp["provider"])
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, payoutID, resp["payout_id"])
+	assert.Equal(t, "created", resp["status"])
+	assert.Equal(t, float64(7500), resp["amount"])
+	assert.Equal(t, "USD", resp["currency"])
+	assert.Equal(t, "card", resp["rail"])
+	assert.Equal(t, "stripe", resp["provider"])
 }
 
 func TestGetPayout_WithExternalID(t *testing.T) {
-payoutID := "550e8400-e29b-41d4-a716-446655440001"
+	payoutID := "550e8400-e29b-41d4-a716-446655440001"
 
-mockClient := &mockPayoutClient{
-getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
-return &orchestratorv1.GetPayoutResponse{
-PayoutId:   payoutID,
-Status:     "completed",
-Amount:     10000,
-Currency:   "EUR",
-Rail:       "crypto",
-Provider:   "crypto_sim",
-ExternalId: "ext-ref-xyz",
-}, nil
-},
-}
+	mockClient := &mockPayoutClient{
+		getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
+			return &orchestratorv1.GetPayoutResponse{
+				PayoutId:   payoutID,
+				Status:     "completed",
+				Amount:     10000,
+				Currency:   "EUR",
+				Rail:       "crypto",
+				Provider:   "crypto_sim",
+				ExternalId: "ext-ref-xyz",
+			}, nil
+		},
+	}
 
-router := NewRouterWithClient(zap.NewNop(), mockClient)
-req := httptest.NewRequest(http.MethodGet, "/v1/payouts/"+payoutID, nil)
-rec := httptest.NewRecorder()
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/"+payoutID, nil)
+	rec := httptest.NewRecorder()
 
-router.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var resp map[string]interface{}
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-assert.Equal(t, "ext-ref-xyz", resp["external_id"])
-assert.Equal(t, "completed", resp["status"])
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ext-ref-xyz", resp["external_id"])
+	assert.Equal(t, "completed", resp["status"])
 }
 
 func TestGetPayout_ExternalIDOmittedWhenEmpty(t *testing.T) {
-mockClient := &mockPayoutClient{
-getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
-return &orchestratorv1.GetPayoutResponse{
-PayoutId: in.GetPayoutId(),
-Status:   "created",
-Amount:   5000,
-Currency: "USD",
-Rail:     "card",
-Provider: "stripe",
-// ExternalId intentionally empty
-}, nil
-},
-}
+	mockClient := &mockPayoutClient{
+		getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
+			return &orchestratorv1.GetPayoutResponse{
+				PayoutId: in.GetPayoutId(),
+				Status:   "created",
+				Amount:   5000,
+				Currency: "USD",
+				Rail:     "card",
+				Provider: "stripe",
+				// ExternalId intentionally empty
+			}, nil
+		},
+	}
 
-router := NewRouterWithClient(zap.NewNop(), mockClient)
-req := httptest.NewRequest(http.MethodGet, "/v1/payouts/some-id", nil)
-rec := httptest.NewRecorder()
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/some-id", nil)
+	rec := httptest.NewRecorder()
 
-router.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var resp map[string]interface{}
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-_, hasExternalID := resp["external_id"]
-assert.False(t, hasExternalID, "external_id should be omitted when empty")
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	_, hasExternalID := resp["external_id"]
+	assert.False(t, hasExternalID, "external_id should be omitted when empty")
 }
 
 func TestGetPayout_NotFound(t *testing.T) {
-mockClient := &mockPayoutClient{
-getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
-return nil, status.Error(codes.NotFound, "payout not found")
-},
-}
+	mockClient := &mockPayoutClient{
+		getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
+			return nil, status.Error(codes.NotFound, "payout not found")
+		},
+	}
 
-router := NewRouterWithClient(zap.NewNop(), mockClient)
-req := httptest.NewRequest(http.MethodGet, "/v1/payouts/nonexistent-id", nil)
-rec := httptest.NewRecorder()
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/nonexistent-id", nil)
+	rec := httptest.NewRecorder()
 
-router.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-assert.Equal(t, http.StatusNotFound, rec.Code)
-assert.Contains(t, rec.Body.String(), "payout not found")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "payout not found")
 }
 
 func TestGetPayout_InvalidUUID(t *testing.T) {
-mockClient := &mockPayoutClient{
-getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
-return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
-},
-}
+	mockClient := &mockPayoutClient{
+		getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
+			return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
+		},
+	}
 
-router := NewRouterWithClient(zap.NewNop(), mockClient)
-req := httptest.NewRequest(http.MethodGet, "/v1/payouts/not-a-uuid", nil)
-rec := httptest.NewRecorder()
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/not-a-uuid", nil)
+	rec := httptest.NewRecorder()
 
-router.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-assert.Contains(t, rec.Body.String(), "payout_id must be a valid UUID")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "payout_id must be a valid UUID")
 }
 
 func TestGetPayout_UpstreamError(t *testing.T) {
-mockClient := &mockPayoutClient{
-getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
-return nil, status.Error(codes.Internal, "database unavailable")
-},
-}
+	mockClient := &mockPayoutClient{
+		getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
+			return nil, status.Error(codes.Internal, "database unavailable")
+		},
+	}
 
-router := NewRouterWithClient(zap.NewNop(), mockClient)
-req := httptest.NewRequest(http.MethodGet, "/v1/payouts/some-id", nil)
-rec := httptest.NewRecorder()
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/some-id", nil)
+	rec := httptest.NewRecorder()
 
-router.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-assert.Equal(t, http.StatusBadGateway, rec.Code)
-assert.Contains(t, rec.Body.String(), "upstream error")
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Contains(t, rec.Body.String(), "upstream error")
 }
 
 func TestGetPayout_PassesIDToGRPC(t *testing.T) {
-var capturedID string
+	var capturedID string
 
-mockClient := &mockPayoutClient{
-getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
-capturedID = in.GetPayoutId()
-return &orchestratorv1.GetPayoutResponse{PayoutId: in.GetPayoutId(), Status: "created"}, nil
-},
-}
+	mockClient := &mockPayoutClient{
+		getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
+			capturedID = in.GetPayoutId()
+			return &orchestratorv1.GetPayoutResponse{PayoutId: in.GetPayoutId(), Status: "created"}, nil
+		},
+	}
 
-router := NewRouterWithClient(zap.NewNop(), mockClient)
-req := httptest.NewRequest(http.MethodGet, "/v1/payouts/abc-123-def", nil)
-rec := httptest.NewRecorder()
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/abc-123-def", nil)
+	rec := httptest.NewRecorder()
 
-router.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-assert.Equal(t, http.StatusOK, rec.Code)
-assert.Equal(t, "abc-123-def", capturedID, "URL path ID must be forwarded to gRPC as-is")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "abc-123-def", capturedID, "URL path ID must be forwarded to gRPC as-is")
 }
 
 // TestGetPayout_AfterCreate is an end-to-end HTTP-layer test:
 // POST creates a payout, GET fetches it by the returned ID.
 func TestGetPayout_AfterCreate(t *testing.T) {
-const fixedID = "550e8400-e29b-41d4-a716-446655440099"
+	const fixedID = "550e8400-e29b-41d4-a716-446655440099"
 
-store := map[string]*orchestratorv1.GetPayoutResponse{}
+	store := map[string]*orchestratorv1.GetPayoutResponse{}
 
-mockClient := &mockPayoutClient{
-createPayoutFunc: func(ctx context.Context, in *orchestratorv1.CreatePayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CreatePayoutResponse, error) {
-store[fixedID] = &orchestratorv1.GetPayoutResponse{
-PayoutId: fixedID,
-Status:   "created",
-Amount:   in.GetAmount(),
-Currency: in.GetCurrency(),
-Rail:     in.GetRail(),
-Provider: "stripe",
-}
-return &orchestratorv1.CreatePayoutResponse{PayoutId: fixedID, Status: "created"}, nil
-},
-getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
-p, ok := store[in.GetPayoutId()]
-if !ok {
-return nil, status.Error(codes.NotFound, "payout not found")
-}
-return p, nil
-},
-}
+	mockClient := &mockPayoutClient{
+		createPayoutFunc: func(ctx context.Context, in *orchestratorv1.CreatePayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CreatePayoutResponse, error) {
+			store[fixedID] = &orchestratorv1.GetPayoutResponse{
+				PayoutId: fixedID,
+				Status:   "created",
+				Amount:   in.GetAmount(),
+				Currency: in.GetCurrency(),
+				Rail:     in.GetRail(),
+				Provider: "stripe",
+			}
+			return &orchestratorv1.CreatePayoutResponse{PayoutId: fixedID, Status: "created"}, nil
+		},
+		getPayoutFunc: func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error) {
+			p, ok := store[in.GetPayoutId()]
+			if !ok {
+				return nil, status.Error(codes.NotFound, "payout not found")
+			}
+			return p, nil
+		},
+	}
 
-router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
 
-// Step 1: create
-createBody := `{"amount":9900,"currency":"GBP","rail":"card"}`
-createReq := httptest.NewRequest(http.MethodPost, "/v1/payouts", bytes.NewBufferString(createBody))
-createReq.Header.Set("Idempotency-Key", "e2e-key-1")
-createReq.Header.Set("Content-Type", "application/json")
-createRec := httptest.NewRecorder()
-router.ServeHTTP(createRec, createReq)
-require.Equal(t, http.StatusAccepted, createRec.Code)
+	// Step 1: create
+	createBody := `{"amount":9900,"currency":"GBP","rail":"card"}`
+	createReq := httptest.NewRequest(http.MethodPost, "/v1/payouts", bytes.NewBufferString(createBody))
+	createReq.Header.Set("Idempotency-Key", "e2e-key-1")
+	createReq.Header.Set("Content-Type", "application/json")
+	createRec := httptest.NewRecorder()
+	router.ServeHTTP(createRec, createReq)
+	require.Equal(t, http.StatusAccepted, createRec.Code)
 
-var createResp map[string]string
-require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-payoutID := createResp["payout_id"]
-require.NotEmpty(t, payoutID)
+	var createResp map[string]string
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	payoutID := createResp["payout_id"]
+	require.NotEmpty(t, payoutID)
 
-// Step 2: fetch by ID
-getReq := httptest.NewRequest(http.MethodGet, "/v1/payouts/"+payoutID, nil)
-getRec := httptest.NewRecorder()
-router.ServeHTTP(getRec, getReq)
-require.Equal(t, http.StatusOK, getRec.Code)
+	// Step 2: fetch by ID
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/payouts/"+payoutID, nil)
+	getRec := httptest.NewRecorder()
+	router.ServeHTTP(getRec, getReq)
+	require.Equal(t, http.StatusOK, getRec.Code)
 
-var getResp map[string]interface{}
-require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
-assert.Equal(t, payoutID, getResp["payout_id"])
-assert.Equal(t, "created", getResp["status"])
-assert.Equal(t, float64(9900), getResp["amount"])
-assert.Equal(t, "GBP", getResp["currency"])
-assert.Equal(t, "card", getResp["rail"])
+	var getResp map[string]interface{}
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	assert.Equal(t, payoutID, getResp["payout_id"])
+	assert.Equal(t, "created", getResp["status"])
+	assert.Equal(t, float64(9900), getResp["amount"])
+	assert.Equal(t, "GBP", getResp["currency"])
+	assert.Equal(t, "card", getResp["rail"])
 }
