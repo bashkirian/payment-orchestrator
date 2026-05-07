@@ -200,6 +200,8 @@ type GetPayoutResponse struct {
 	Amount        int64                  `protobuf:"varint,3,opt,name=amount,proto3" json:"amount,omitempty"`
 	Currency      string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
 	Provider      string                 `protobuf:"bytes,5,opt,name=provider,proto3" json:"provider,omitempty"`
+	Rail          string                 `protobuf:"bytes,6,opt,name=rail,proto3" json:"rail,omitempty"`
+	ExternalId    string                 `protobuf:"bytes,7,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"` // provider reference, empty if not yet assigned
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -265,6 +267,20 @@ func (x *GetPayoutResponse) GetCurrency() string {
 func (x *GetPayoutResponse) GetProvider() string {
 	if x != nil {
 		return x.Provider
+	}
+	return ""
+}
+
+func (x *GetPayoutResponse) GetRail() string {
+	if x != nil {
+		return x.Rail
+	}
+	return ""
+}
+
+func (x *GetPayoutResponse) GetExternalId() string {
+	if x != nil {
+		return x.ExternalId
 	}
 	return ""
 }
@@ -476,13 +492,16 @@ const file_orchestrator_v1_orchestrator_proto_rawDesc = "" +
 	"\tpayout_id\x18\x01 \x01(\tR\bpayoutId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\"/\n" +
 	"\x10GetPayoutRequest\x12\x1b\n" +
-	"\tpayout_id\x18\x01 \x01(\tR\bpayoutId\"\x98\x01\n" +
+	"\tpayout_id\x18\x01 \x01(\tR\bpayoutId\"\xcd\x01\n" +
 	"\x11GetPayoutResponse\x12\x1b\n" +
 	"\tpayout_id\x18\x01 \x01(\tR\bpayoutId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\x03R\x06amount\x12\x1a\n" +
 	"\bcurrency\x18\x04 \x01(\tR\bcurrency\x12\x1a\n" +
-	"\bprovider\x18\x05 \x01(\tR\bprovider\"2\n" +
+	"\bprovider\x18\x05 \x01(\tR\bprovider\x12\x12\n" +
+	"\x04rail\x18\x06 \x01(\tR\x04rail\x12\x1f\n" +
+	"\vexternal_id\x18\a \x01(\tR\n" +
+	"externalId\"2\n" +
 	"\x13CancelPayoutRequest\x12\x1b\n" +
 	"\tpayout_id\x18\x01 \x01(\tR\bpayoutId\"0\n" +
 	"\x14CancelPayoutResponse\x12\x18\n" +

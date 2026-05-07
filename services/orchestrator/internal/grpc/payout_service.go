@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -133,14 +134,35 @@ func (s *PayoutServiceServer) GetPayout(
 	ctx context.Context,
 	req *orchestratorv1.GetPayoutRequest,
 ) (*orchestratorv1.GetPayoutResponse, error) {
-	s.log.Info("GetPayout stub", zap.String("payout_id", req.GetPayoutId()))
-	return &orchestratorv1.GetPayoutResponse{
-		PayoutId: req.GetPayoutId(),
-		Status:   "PENDING",
-		Amount:   0,
-		Currency: "USD",
-		Provider: "stub",
-	}, nil
+	if req.GetPayoutId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "payout_id is required")
+	}
+
+	id, err := uuid.Parse(req.GetPayoutId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
+	}
+
+	payout, err := s.payoutRepo.GetPayout(ctx, id)
+	if err != nil {
+		if errors.Is(err, postgres.ErrNotFound) {
+			return nil, status.Errorf(codes.NotFound, "payout %s not found", req.GetPayoutId())
+		}
+		return nil, status.Errorf(codes.Internal, "get payout: %v", err)
+	}
+
+	resp := &orchestratorv1.GetPayoutResponse{
+		PayoutId: payout.ID.String(),
+		Status:   string(payout.State),
+		Amount:   payout.AmountCents,
+		Currency: payout.Currency,
+		Provider: string(payout.Provider),
+		Rail:     string(payout.Rail),
+	}
+	if payout.ExternalID != nil {
+		resp.ExternalId = *payout.ExternalID
+	}
+	return resp, nil
 }
 
 func (s *PayoutServiceServer) CancelPayout(
