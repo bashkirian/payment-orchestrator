@@ -16,13 +16,13 @@ import (
 
 // mockQuerier is an in-memory mock that implements sqlcgen.Querier.
 type mockQuerier struct {
-	payouts        map[uuid.UUID]sqlcgen.Payout
+	payouts         map[uuid.UUID]sqlcgen.Payout
 	idempotencyKeys map[string]sqlcgen.IdempotencyKey
 }
 
 func newMockQuerier() *mockQuerier {
 	return &mockQuerier{
-		payouts:        make(map[uuid.UUID]sqlcgen.Payout),
+		payouts:         make(map[uuid.UUID]sqlcgen.Payout),
 		idempotencyKeys: make(map[string]sqlcgen.IdempotencyKey),
 	}
 }

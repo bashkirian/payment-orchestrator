@@ -113,7 +113,6 @@ func createPayoutHandlerWithClient(log *zap.Logger, client PayoutClient) http.Ha
 	}
 }
 
-
 type getPayoutResponse struct {
 	PayoutID   string `json:"payout_id"`
 	Status     string `json:"status"`

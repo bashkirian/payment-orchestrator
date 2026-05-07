@@ -494,145 +494,144 @@ func TestIdempotencyKeyPersistence(t *testing.T) {
 	assert.WithinDuration(t, time.Now(), key.CreatedAt, 5*time.Second)
 }
 
-
 // ── GetPayout integration tests ───────────────────────────────────────────────
 
 func TestGetPayout_Success_Integration(t *testing.T) {
-ctx, pool, cleanup := setupTestDB(t)
-defer cleanup()
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
 
-server := newTestServer(t, pool)
+	server := newTestServer(t, pool)
 
-createResp, err := server.createPayout(ctx, "get-key-1", "get-hash-1", 5000, "USD", "card")
-require.NoError(t, err)
+	createResp, err := server.createPayout(ctx, "get-key-1", "get-hash-1", 5000, "USD", "card")
+	require.NoError(t, err)
 
-ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
-defer cancel()
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 
-resp, err := server.getPayout(ctx2, createResp.PayoutId)
-require.NoError(t, err)
+	resp, err := server.getPayout(ctx2, createResp.PayoutId)
+	require.NoError(t, err)
 
-assert.Equal(t, createResp.PayoutId, resp.GetPayoutId())
-assert.Equal(t, "created", resp.GetStatus())
-assert.Equal(t, int64(5000), resp.GetAmount())
-assert.Equal(t, "USD", resp.GetCurrency())
-assert.Equal(t, "card", resp.GetRail())
-assert.Equal(t, "stripe", resp.GetProvider())
-assert.Empty(t, resp.GetExternalId(), "external_id should be empty for new payout")
+	assert.Equal(t, createResp.PayoutId, resp.GetPayoutId())
+	assert.Equal(t, "created", resp.GetStatus())
+	assert.Equal(t, int64(5000), resp.GetAmount())
+	assert.Equal(t, "USD", resp.GetCurrency())
+	assert.Equal(t, "card", resp.GetRail())
+	assert.Equal(t, "stripe", resp.GetProvider())
+	assert.Empty(t, resp.GetExternalId(), "external_id should be empty for new payout")
 }
 
 func TestGetPayout_FieldsMatchCreate_Integration(t *testing.T) {
-ctx, pool, cleanup := setupTestDB(t)
-defer cleanup()
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
 
-server := newTestServer(t, pool)
+	server := newTestServer(t, pool)
 
-cases := []struct {
-name     string
-amount   int64
-currency string
-rail     string
-provider string
-}{
-{"card/stripe", 9900, "GBP", "card", "stripe"},
-{"crypto/crypto_sim", 15000, "USD", "crypto", "crypto_sim"},
-}
+	cases := []struct {
+		name     string
+		amount   int64
+		currency string
+		rail     string
+		provider string
+	}{
+		{"card/stripe", 9900, "GBP", "card", "stripe"},
+		{"crypto/crypto_sim", 15000, "USD", "crypto", "crypto_sim"},
+	}
 
-for _, tc := range cases {
-tc := tc
-t.Run(tc.name, func(t *testing.T) {
-createResp, err := server.createPayout(ctx, "get-fields-"+tc.rail, "hash-"+tc.rail, tc.amount, tc.currency, tc.rail)
-require.NoError(t, err)
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			createResp, err := server.createPayout(ctx, "get-fields-"+tc.rail, "hash-"+tc.rail, tc.amount, tc.currency, tc.rail)
+			require.NoError(t, err)
 
-ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
-defer cancel()
+			ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
 
-resp, err := server.getPayout(ctx2, createResp.PayoutId)
-require.NoError(t, err)
-assert.Equal(t, tc.amount, resp.GetAmount())
-assert.Equal(t, tc.currency, resp.GetCurrency())
-assert.Equal(t, tc.rail, resp.GetRail())
-assert.Equal(t, tc.provider, resp.GetProvider())
-})
-}
+			resp, err := server.getPayout(ctx2, createResp.PayoutId)
+			require.NoError(t, err)
+			assert.Equal(t, tc.amount, resp.GetAmount())
+			assert.Equal(t, tc.currency, resp.GetCurrency())
+			assert.Equal(t, tc.rail, resp.GetRail())
+			assert.Equal(t, tc.provider, resp.GetProvider())
+		})
+	}
 }
 
 func TestGetPayout_NotFound_Integration(t *testing.T) {
-ctx, pool, cleanup := setupTestDB(t)
-defer cleanup()
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
 
-server := newTestServer(t, pool)
-nonExistentID := uuid.New().String()
+	server := newTestServer(t, pool)
+	nonExistentID := uuid.New().String()
 
-ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
-defer cancel()
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 
-_, err := server.getPayout(ctx2, nonExistentID)
-require.Error(t, err)
+	_, err := server.getPayout(ctx2, nonExistentID)
+	require.Error(t, err)
 
-st, ok := status.FromError(err)
-require.True(t, ok)
-assert.Equal(t, codes.NotFound, st.Code())
-assert.Contains(t, st.Message(), nonExistentID)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.NotFound, st.Code())
+	assert.Contains(t, st.Message(), nonExistentID)
 }
 
 func TestGetPayout_InvalidUUID_Integration(t *testing.T) {
-ctx, pool, cleanup := setupTestDB(t)
-defer cleanup()
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
 
-server := newTestServer(t, pool)
+	server := newTestServer(t, pool)
 
-ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
-defer cancel()
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 
-_, err := server.getPayout(ctx2, "not-a-uuid")
-require.Error(t, err)
+	_, err := server.getPayout(ctx2, "not-a-uuid")
+	require.Error(t, err)
 
-st, ok := status.FromError(err)
-require.True(t, ok)
-assert.Equal(t, codes.InvalidArgument, st.Code())
-assert.Contains(t, st.Message(), "payout_id must be a valid UUID")
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+	assert.Contains(t, st.Message(), "payout_id must be a valid UUID")
 }
 
 func TestGetPayout_EmptyID_Integration(t *testing.T) {
-ctx, pool, cleanup := setupTestDB(t)
-defer cleanup()
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
 
-server := newTestServer(t, pool)
+	server := newTestServer(t, pool)
 
-ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
-defer cancel()
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 
-_, err := server.getPayout(ctx2, "")
-require.Error(t, err)
+	_, err := server.getPayout(ctx2, "")
+	require.Error(t, err)
 
-st, ok := status.FromError(err)
-require.True(t, ok)
-assert.Equal(t, codes.InvalidArgument, st.Code())
-assert.Contains(t, st.Message(), "payout_id is required")
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+	assert.Contains(t, st.Message(), "payout_id is required")
 }
 
 func TestGetPayout_AfterIdempotentReplay_Integration(t *testing.T) {
-ctx, pool, cleanup := setupTestDB(t)
-defer cleanup()
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
 
-server := newTestServer(t, pool)
+	server := newTestServer(t, pool)
 
-const key = "get-idempotent-1"
-const hash = "get-hash-idem-1"
+	const key = "get-idempotent-1"
+	const hash = "get-hash-idem-1"
 
-resp1, err := server.createPayout(ctx, key, hash, 3000, "EUR", "card")
-require.NoError(t, err)
+	resp1, err := server.createPayout(ctx, key, hash, 3000, "EUR", "card")
+	require.NoError(t, err)
 
-resp2, err := server.createPayout(ctx, key, hash, 3000, "EUR", "card")
-require.NoError(t, err)
-require.Equal(t, resp1.PayoutId, resp2.PayoutId, "replay must return same payout_id")
+	resp2, err := server.createPayout(ctx, key, hash, 3000, "EUR", "card")
+	require.NoError(t, err)
+	require.Equal(t, resp1.PayoutId, resp2.PayoutId, "replay must return same payout_id")
 
-ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
-defer cancel()
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 
-getResp, err := server.getPayout(ctx2, resp1.PayoutId)
-require.NoError(t, err)
-assert.Equal(t, resp1.PayoutId, getResp.GetPayoutId())
-assert.Equal(t, int64(3000), getResp.GetAmount())
+	getResp, err := server.getPayout(ctx2, resp1.PayoutId)
+	require.NoError(t, err)
+	assert.Equal(t, resp1.PayoutId, getResp.GetPayoutId())
+	assert.Equal(t, int64(3000), getResp.GetAmount())
 }
