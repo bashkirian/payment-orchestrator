@@ -26,6 +26,7 @@ import (
 type mockPayoutClient struct {
 	createPayoutFunc func(ctx context.Context, in *orchestratorv1.CreatePayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CreatePayoutResponse, error)
 	getPayoutFunc    func(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error)
+	cancelPayoutFunc func(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error)
 }
 
 func (m *mockPayoutClient) CreatePayout(ctx context.Context, in *orchestratorv1.CreatePayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CreatePayoutResponse, error) {
@@ -47,6 +48,13 @@ func (m *mockPayoutClient) GetPayout(ctx context.Context, in *orchestratorv1.Get
 		Rail:     "card",
 		Provider: "stripe",
 	}, nil
+}
+
+func (m *mockPayoutClient) CancelPayout(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error) {
+	if m.cancelPayoutFunc != nil {
+		return m.cancelPayoutFunc(ctx, in, opts...)
+	}
+	return &orchestratorv1.CancelPayoutResponse{Success: true}, nil
 }
 
 func TestCreatePayout_Success(t *testing.T) {
@@ -611,4 +619,116 @@ func TestGetPayout_AfterCreate(t *testing.T) {
 	assert.Equal(t, float64(9900), getResp["amount"])
 	assert.Equal(t, "GBP", getResp["currency"])
 	assert.Equal(t, "card", getResp["rail"])
+}
+
+// ── POST /v1/payouts/{id}/cancel ─────────────────────────────────────────────
+
+func TestCancelPayout_Success(t *testing.T) {
+	payoutID := "550e8400-e29b-41d4-a716-446655440000"
+
+	mockClient := &mockPayoutClient{
+		cancelPayoutFunc: func(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error) {
+			assert.Equal(t, payoutID, in.GetPayoutId())
+			return &orchestratorv1.CancelPayoutResponse{Success: true}, nil
+		},
+	}
+
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/"+payoutID+"/cancel", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]bool
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.True(t, resp["success"])
+}
+
+func TestCancelPayout_NotFound(t *testing.T) {
+	mockClient := &mockPayoutClient{
+		cancelPayoutFunc: func(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error) {
+			return nil, status.Error(codes.NotFound, "payout not found")
+		},
+	}
+
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/nonexistent/cancel", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "payout not found")
+}
+
+func TestCancelPayout_InvalidUUID(t *testing.T) {
+	mockClient := &mockPayoutClient{
+		cancelPayoutFunc: func(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error) {
+			return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
+		},
+	}
+
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/not-a-uuid/cancel", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "payout_id must be a valid UUID")
+}
+
+func TestCancelPayout_WrongState(t *testing.T) {
+	mockClient := &mockPayoutClient{
+		cancelPayoutFunc: func(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error) {
+			return nil, status.Error(codes.FailedPrecondition, `payout cannot be canceled in state "processing"`)
+		},
+	}
+
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/some-id/cancel", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "cannot be canceled")
+}
+
+func TestCancelPayout_UpstreamError(t *testing.T) {
+	mockClient := &mockPayoutClient{
+		cancelPayoutFunc: func(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error) {
+			return nil, status.Error(codes.Internal, "db error")
+		},
+	}
+
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/some-id/cancel", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Contains(t, rec.Body.String(), "upstream error")
+}
+
+func TestCancelPayout_PassesIDToGRPC(t *testing.T) {
+	var capturedID string
+
+	mockClient := &mockPayoutClient{
+		cancelPayoutFunc: func(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error) {
+			capturedID = in.GetPayoutId()
+			return &orchestratorv1.CancelPayoutResponse{Success: true}, nil
+		},
+	}
+
+	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/my-payout-id/cancel", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "my-payout-id", capturedID)
 }

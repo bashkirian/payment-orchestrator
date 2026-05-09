@@ -11,10 +11,12 @@ type PayoutState string
 
 const (
 	PayoutStateCreated    PayoutState = "created"
+	PayoutStateQueued     PayoutState = "queued"
 	PayoutStatePending    PayoutState = "pending"
 	PayoutStateProcessing PayoutState = "processing"
 	PayoutStateCompleted  PayoutState = "completed"
 	PayoutStateFailed     PayoutState = "failed"
+	PayoutStateCanceled   PayoutState = "canceled"
 )
 
 type Rail string
@@ -62,6 +64,7 @@ type CreatePayoutParams struct {
 type PayoutRepository interface {
 	CreatePayout(ctx context.Context, params CreatePayoutParams) (Payout, error)
 	GetPayout(ctx context.Context, id uuid.UUID) (Payout, error)
+	CancelPayout(ctx context.Context, id uuid.UUID, cancelableStates []PayoutState) (Payout, error)
 }
 
 // IdempotencyRepository provides atomic idempotency key management.

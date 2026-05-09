@@ -18,5 +18,14 @@ VALUES (@key, @request_hash, @payout_id)
 ON CONFLICT (key) DO NOTHING
 RETURNING *;
 
+-- name: CancelPayoutIfCancelable :one
+-- Atomically transitions a payout to canceled only if it is in a cancelable state.
+-- Returns the updated row; pgx.ErrNoRows if not found or state not cancelable.
+UPDATE payouts
+SET state = 'canceled', updated_at = now()
+WHERE id = @id
+  AND state = ANY(@cancelable_states::text[])
+RETURNING *;
+
 -- name: GetIdempotencyKey :one
 SELECT * FROM idempotency_keys WHERE key = @key;
