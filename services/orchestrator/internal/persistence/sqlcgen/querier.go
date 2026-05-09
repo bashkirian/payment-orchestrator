@@ -11,6 +11,9 @@ import (
 )
 
 type Querier interface {
+	// Atomically transitions a payout to canceled only if it is in a cancelable state.
+	// Returns the updated row; pgx.ErrNoRows if not found or state not cancelable.
+	CancelPayoutIfCancelable(ctx context.Context, arg CancelPayoutIfCancelableParams) (Payout, error)
 	CreatePayout(ctx context.Context, arg CreatePayoutParams) (Payout, error)
 	GetIdempotencyKey(ctx context.Context, key string) (IdempotencyKey, error)
 	GetPayout(ctx context.Context, id uuid.UUID) (Payout, error)

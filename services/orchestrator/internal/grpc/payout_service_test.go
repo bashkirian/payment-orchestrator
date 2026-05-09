@@ -55,7 +55,7 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 	migrationSQL := `
 	CREATE TABLE payouts (
 	    id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-	    state        text        NOT NULL CHECK (state IN ('created', 'pending', 'processing', 'completed', 'succeeded', 'failed')),
+	    state        text        NOT NULL CHECK (state IN ('created', 'queued', 'pending', 'processing', 'completed', 'succeeded', 'failed', 'canceled')),
 	    amount_cents bigint      NOT NULL CHECK (amount_cents > 0),
 	    currency     text        NOT NULL,
 	    rail         text        NOT NULL CHECK (rail IN ('card', 'crypto')),
@@ -224,6 +224,42 @@ func (s *payoutTestServer) getPayout(
 		resp.ExternalId = *payout.ExternalID
 	}
 	return resp, nil
+}
+
+// cancelPayout delegates to the real PayoutServiceServer for integration testing.
+func (s *payoutTestServer) cancelPayout(
+	ctx context.Context,
+	payoutID string,
+) (*orchestratorv1.CancelPayoutResponse, error) {
+	if payoutID == "" {
+		return nil, status.Error(codes.InvalidArgument, "payout_id is required")
+	}
+
+	id, err := uuid.Parse(payoutID)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
+	}
+
+	cancelableStates := []domain.PayoutState{domain.PayoutStateCreated, domain.PayoutStateQueued}
+	repo := postgres.NewPayoutRepo(sqlcgen.New(s.pool))
+
+	_, err = repo.CancelPayout(ctx, id, cancelableStates)
+	if err != nil {
+		if errors.Is(err, postgres.ErrNotFound) {
+			existing, getErr := repo.GetPayout(ctx, id)
+			if getErr != nil {
+				if errors.Is(getErr, postgres.ErrNotFound) {
+					return nil, status.Errorf(codes.NotFound, "payout %s not found", payoutID)
+				}
+				return nil, status.Errorf(codes.Internal, "get payout: %v", getErr)
+			}
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"payout cannot be canceled in state %q", existing.State)
+		}
+		return nil, status.Errorf(codes.Internal, "cancel payout: %v", err)
+	}
+
+	return &orchestratorv1.CancelPayoutResponse{Success: true}, nil
 }
 
 // TestCreatePayout_NewPayout tests creating a new payout with a fresh idempotency key
@@ -634,4 +670,154 @@ func TestGetPayout_AfterIdempotentReplay_Integration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, resp1.PayoutId, getResp.GetPayoutId())
 	assert.Equal(t, int64(3000), getResp.GetAmount())
+}
+
+// ── CancelPayout integration tests ────────────────────────────────────────────
+
+func TestCancelPayout_Created_Integration(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	createResp, err := server.createPayout(ctx, "cancel-key-1", "cancel-hash-1", 5000, "USD", "card")
+	require.NoError(t, err)
+
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	resp, err := server.cancelPayout(ctx2, createResp.PayoutId)
+	require.NoError(t, err)
+	assert.True(t, resp.GetSuccess())
+
+	// Verify state is now canceled
+	getResp, err := server.getPayout(ctx, createResp.PayoutId)
+	require.NoError(t, err)
+	assert.Equal(t, "canceled", getResp.GetStatus())
+}
+
+func TestCancelPayout_Queued_Integration(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Insert a payout in 'queued' state directly
+	row, err := sqlcgen.New(pool).UpdatePayoutState(ctx, sqlcgen.UpdatePayoutStateParams{
+		State:      "queued",
+		ExternalID: nil,
+		ID: func() uuid.UUID {
+			r, e := sqlcgen.New(pool).CreatePayout(ctx, sqlcgen.CreatePayoutParams{
+				State: "created", AmountCents: 3000, Currency: "USD", Rail: "card", Provider: "stripe",
+			})
+			require.NoError(t, e)
+			return r.ID
+		}(),
+	})
+	require.NoError(t, err)
+	payoutID := row.ID.String()
+
+	server := newTestServer(t, pool)
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	resp, err := server.cancelPayout(ctx2, payoutID)
+	require.NoError(t, err)
+	assert.True(t, resp.GetSuccess())
+
+	getResp, err := server.getPayout(ctx, payoutID)
+	require.NoError(t, err)
+	assert.Equal(t, "canceled", getResp.GetStatus())
+}
+
+func TestCancelPayout_WrongState_Processing_Integration(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Create then advance to processing
+	createResp, err := newTestServer(t, pool).createPayout(ctx, "cancel-wrong-state", "cancel-hash-ws", 5000, "USD", "card")
+	require.NoError(t, err)
+
+	id, err := uuid.Parse(createResp.PayoutId)
+	require.NoError(t, err)
+
+	_, err = sqlcgen.New(pool).UpdatePayoutState(ctx, sqlcgen.UpdatePayoutStateParams{
+		State: "processing", ExternalID: nil, ID: id,
+	})
+	require.NoError(t, err)
+
+	server := newTestServer(t, pool)
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	_, err = server.cancelPayout(ctx2, createResp.PayoutId)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.FailedPrecondition, st.Code())
+	assert.Contains(t, st.Message(), "cannot be canceled")
+}
+
+func TestCancelPayout_NotFound_Integration(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+	nonExistentID := uuid.New().String()
+
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	_, err := server.cancelPayout(ctx2, nonExistentID)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.NotFound, st.Code())
+}
+
+func TestCancelPayout_InvalidUUID_Integration(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	_, err := server.cancelPayout(ctx2, "not-a-uuid")
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+}
+
+func TestCancelPayout_AlreadyCanceled_Integration(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	createResp, err := server.createPayout(ctx, "cancel-twice-key", "cancel-twice-hash", 5000, "USD", "card")
+	require.NoError(t, err)
+
+	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	// First cancel succeeds
+	resp, err := server.cancelPayout(ctx2, createResp.PayoutId)
+	require.NoError(t, err)
+	assert.True(t, resp.GetSuccess())
+
+	// Second cancel fails with FailedPrecondition
+	ctx3, cancel3 := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel3()
+
+	_, err = server.cancelPayout(ctx3, createResp.PayoutId)
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.FailedPrecondition, st.Code())
+	assert.Contains(t, st.Message(), `"canceled"`)
 }

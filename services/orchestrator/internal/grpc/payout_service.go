@@ -165,11 +165,44 @@ func (s *PayoutServiceServer) GetPayout(
 	return resp, nil
 }
 
+// cancelableStates is the set of states from which a payout may be canceled.
+var cancelableStates = []domain.PayoutState{
+	domain.PayoutStateCreated,
+	domain.PayoutStateQueued,
+}
+
 func (s *PayoutServiceServer) CancelPayout(
 	ctx context.Context,
 	req *orchestratorv1.CancelPayoutRequest,
 ) (*orchestratorv1.CancelPayoutResponse, error) {
-	s.log.Info("CancelPayout stub", zap.String("payout_id", req.GetPayoutId()))
+	if req.GetPayoutId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "payout_id is required")
+	}
+
+	id, err := uuid.Parse(req.GetPayoutId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
+	}
+
+	_, err = s.payoutRepo.CancelPayout(ctx, id, cancelableStates)
+	if err != nil {
+		if errors.Is(err, postgres.ErrNotFound) {
+			// ErrNotFound here means either payout doesn't exist OR state is not cancelable.
+			// Distinguish by fetching the payout.
+			existing, getErr := s.payoutRepo.GetPayout(ctx, id)
+			if getErr != nil {
+				if errors.Is(getErr, postgres.ErrNotFound) {
+					return nil, status.Errorf(codes.NotFound, "payout %s not found", req.GetPayoutId())
+				}
+				return nil, status.Errorf(codes.Internal, "get payout: %v", getErr)
+			}
+			return nil, status.Errorf(codes.FailedPrecondition,
+				"payout cannot be canceled in state %q", existing.State)
+		}
+		return nil, status.Errorf(codes.Internal, "cancel payout: %v", err)
+	}
+
+	s.log.Info("CancelPayout", zap.String("payout_id", req.GetPayoutId()))
 	return &orchestratorv1.CancelPayoutResponse{Success: true}, nil
 }
 

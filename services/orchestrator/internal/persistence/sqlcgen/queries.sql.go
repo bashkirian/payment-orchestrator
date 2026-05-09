@@ -11,6 +11,38 @@ import (
 	"github.com/google/uuid"
 )
 
+const cancelPayoutIfCancelable = `-- name: CancelPayoutIfCancelable :one
+UPDATE payouts
+SET state = 'canceled', updated_at = now()
+WHERE id = $1
+  AND state = ANY($2::text[])
+RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at
+`
+
+type CancelPayoutIfCancelableParams struct {
+	ID               uuid.UUID `json:"id"`
+	CancelableStates []string  `json:"cancelable_states"`
+}
+
+// Atomically transitions a payout to canceled only if it is in a cancelable state.
+// Returns the updated row; pgx.ErrNoRows if not found or state not cancelable.
+func (q *Queries) CancelPayoutIfCancelable(ctx context.Context, arg CancelPayoutIfCancelableParams) (Payout, error) {
+	row := q.db.QueryRow(ctx, cancelPayoutIfCancelable, arg.ID, arg.CancelableStates)
+	var i Payout
+	err := row.Scan(
+		&i.ID,
+		&i.State,
+		&i.AmountCents,
+		&i.Currency,
+		&i.Rail,
+		&i.Provider,
+		&i.ExternalID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createPayout = `-- name: CreatePayout :one
 INSERT INTO payouts (state, amount_cents, currency, rail, provider, external_id)
 VALUES ($1, $2, $3, $4, $5, $6)

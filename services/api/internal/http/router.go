@@ -24,6 +24,7 @@ import (
 type PayoutClient interface {
 	CreatePayout(ctx context.Context, in *orchestratorv1.CreatePayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CreatePayoutResponse, error)
 	GetPayout(ctx context.Context, in *orchestratorv1.GetPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.GetPayoutResponse, error)
+	CancelPayout(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error)
 }
 
 func NewRouter(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient) http.Handler {
@@ -45,6 +46,7 @@ func NewRouterWithClient(log *zap.Logger, client PayoutClient) http.Handler {
 
 	router.Post("/v1/payouts", createPayoutHandlerWithClient(log, client))
 	router.Get("/v1/payouts/{id}", getPayoutHandler(log, client))
+	router.Post("/v1/payouts/{id}/cancel", cancelPayoutHandler(log, client))
 
 	return router
 }
@@ -161,6 +163,42 @@ func getPayoutHandler(log *zap.Logger, client PayoutClient) http.HandlerFunc {
 			Provider:   resp.GetProvider(),
 			ExternalID: resp.GetExternalId(),
 		})
+	}
+}
+
+func cancelPayoutHandler(log *zap.Logger, client PayoutClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			http.Error(w, `{"error":"payout id is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		resp, err := client.CancelPayout(r.Context(), &orchestratorv1.CancelPayoutRequest{
+			PayoutId: id,
+		})
+		if err != nil {
+			if st, ok := status.FromError(err); ok {
+				switch st.Code() {
+				case codes.NotFound:
+					http.Error(w, `{"error":"payout not found"}`, http.StatusNotFound)
+					return
+				case codes.InvalidArgument:
+					http.Error(w, `{"error":"`+st.Message()+`"}`, http.StatusBadRequest)
+					return
+				case codes.FailedPrecondition:
+					http.Error(w, `{"error":"`+st.Message()+`"}`, http.StatusConflict)
+					return
+				}
+			}
+			log.Error("CancelPayout failed", zap.Error(err))
+			http.Error(w, `{"error":"upstream error"}`, http.StatusBadGateway)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"success": resp.GetSuccess()})
 	}
 }
 
