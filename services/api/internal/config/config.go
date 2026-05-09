@@ -19,6 +19,11 @@ type Config struct {
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
 	ShutdownTimeout   time.Duration
+
+	RedisAddr     string
+	RedisPassword string
+	// RateLimitEnabled controls the rate-limit middleware. Disabled by default.
+	RateLimitEnabled bool
 }
 
 func Load() (Config, error) {
@@ -32,6 +37,10 @@ func Load() (Config, error) {
 		HTTPAddr:         getEnv("API_HTTP_ADDR", ":8080"),
 		LogLevel:         getEnv("API_LOG_LEVEL", "info"),
 		OrchestratorAddr: getEnv("API_ORCHESTRATOR_ADDR", "localhost:50051"),
+
+		RedisAddr:        getEnv("API_REDIS_ADDR", "localhost:6379"),
+		RedisPassword:    getEnv("API_REDIS_PASSWORD", ""),
+		RateLimitEnabled: getEnv("API_RATE_LIMIT_ENABLED", "false") == "true",
 	}
 
 	if cfg.ReadTimeout, err = getDurationEnv("API_READ_TIMEOUT", 5*time.Second); err != nil {

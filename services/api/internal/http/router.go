@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/redis/rueidis"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -17,6 +18,7 @@ import (
 
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
 	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
+	apimiddleware "github.com/bashkirian/fintech-project/services/api/internal/http/middleware"
 )
 
 // PayoutClient is an interface for the payout gRPC client.
@@ -27,16 +29,17 @@ type PayoutClient interface {
 	CancelPayout(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error)
 }
 
-func NewRouter(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient) http.Handler {
-	return NewRouterWithClient(log, orchestrator.Payout)
+func NewRouter(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient, redis rueidis.Client, rateLimitEnabled bool) http.Handler {
+	return NewRouterWithClient(log, orchestrator.Payout, redis, rateLimitEnabled)
 }
 
 // NewRouterWithClient creates a router with a PayoutClient interface for testing.
-func NewRouterWithClient(log *zap.Logger, client PayoutClient) http.Handler {
+func NewRouterWithClient(log *zap.Logger, client PayoutClient, redis rueidis.Client, rateLimitEnabled bool) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 	router.Use(accessLog(log))
+	router.Use(apimiddleware.RateLimit(log, redis, rateLimitEnabled))
 
 	router.Get("/health", func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
