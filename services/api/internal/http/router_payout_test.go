@@ -73,7 +73,7 @@ func TestCreatePayout_Success(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	body := `{"amount": 5000, "currency": "USD", "rail": "card"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts", bytes.NewBufferString(body))
@@ -93,7 +93,7 @@ func TestCreatePayout_Success(t *testing.T) {
 
 func TestCreatePayout_MissingIdempotencyKey(t *testing.T) {
 	mockClient := &mockPayoutClient{}
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	body := `{"amount": 5000, "currency": "USD", "rail": "card"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts", bytes.NewBufferString(body))
@@ -108,7 +108,7 @@ func TestCreatePayout_MissingIdempotencyKey(t *testing.T) {
 
 func TestCreatePayout_InvalidRequestBody(t *testing.T) {
 	mockClient := &mockPayoutClient{}
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	tests := []struct {
 		name   string
@@ -170,7 +170,7 @@ func TestCreatePayout_IdempotentReplay(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	body := `{"amount": 10000, "currency": "EUR", "rail": "crypto"}`
 
@@ -206,7 +206,7 @@ func TestCreatePayout_ConflictDifferentHash(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	body := `{"amount": 5000, "currency": "USD", "rail": "card"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts", bytes.NewBufferString(body))
@@ -227,7 +227,7 @@ func TestCreatePayout_UpstreamError(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	body := `{"amount": 5000, "currency": "USD", "rail": "card"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts", bytes.NewBufferString(body))
@@ -276,7 +276,7 @@ func TestCreatePayout_RequestHashComputedCorrectly(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	// Different amounts should produce different hashes
 	requests := []struct {
@@ -322,7 +322,7 @@ func TestCreatePayout_ContentTypeNotRequired(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	body := `{"amount": 5000, "currency": "USD", "rail": "card"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts", bytes.NewBufferString(body))
@@ -350,7 +350,7 @@ func TestCreatePayout_SameBodySameHash(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	// Two identical requests (different idempotency keys)
 	body := `{"amount": 5000, "currency": "USD", "rail": "card"}`
@@ -379,7 +379,7 @@ func TestCreatePayout_MissingCurrency(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	// Currency is optional - handler should pass empty string to orchestrator
 	body := `{"amount": 5000, "rail": "card"}`
@@ -412,7 +412,7 @@ func TestGetPayout_Success(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/"+payoutID, nil)
 	rec := httptest.NewRecorder()
 
@@ -448,7 +448,7 @@ func TestGetPayout_WithExternalID(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/"+payoutID, nil)
 	rec := httptest.NewRecorder()
 
@@ -477,7 +477,7 @@ func TestGetPayout_ExternalIDOmittedWhenEmpty(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/some-id", nil)
 	rec := httptest.NewRecorder()
 
@@ -498,7 +498,7 @@ func TestGetPayout_NotFound(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/nonexistent-id", nil)
 	rec := httptest.NewRecorder()
 
@@ -515,7 +515,7 @@ func TestGetPayout_InvalidUUID(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/not-a-uuid", nil)
 	rec := httptest.NewRecorder()
 
@@ -532,7 +532,7 @@ func TestGetPayout_UpstreamError(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/some-id", nil)
 	rec := httptest.NewRecorder()
 
@@ -552,7 +552,7 @@ func TestGetPayout_PassesIDToGRPC(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodGet, "/v1/payouts/abc-123-def", nil)
 	rec := httptest.NewRecorder()
 
@@ -590,7 +590,7 @@ func TestGetPayout_AfterCreate(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 
 	// Step 1: create
 	createBody := `{"amount":9900,"currency":"GBP","rail":"card"}`
@@ -633,7 +633,7 @@ func TestCancelPayout_Success(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/"+payoutID+"/cancel", nil)
 	rec := httptest.NewRecorder()
 
@@ -652,7 +652,7 @@ func TestCancelPayout_NotFound(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/nonexistent/cancel", nil)
 	rec := httptest.NewRecorder()
 
@@ -669,7 +669,7 @@ func TestCancelPayout_InvalidUUID(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/not-a-uuid/cancel", nil)
 	rec := httptest.NewRecorder()
 
@@ -686,7 +686,7 @@ func TestCancelPayout_WrongState(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/some-id/cancel", nil)
 	rec := httptest.NewRecorder()
 
@@ -703,7 +703,7 @@ func TestCancelPayout_UpstreamError(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/some-id/cancel", nil)
 	rec := httptest.NewRecorder()
 
@@ -723,7 +723,7 @@ func TestCancelPayout_PassesIDToGRPC(t *testing.T) {
 		},
 	}
 
-	router := NewRouterWithClient(zap.NewNop(), mockClient)
+	router := NewRouterWithClient(zap.NewNop(), mockClient, nil, false)
 	req := httptest.NewRequest(http.MethodPost, "/v1/payouts/my-payout-id/cancel", nil)
 	rec := httptest.NewRecorder()
 

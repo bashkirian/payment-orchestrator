@@ -12,7 +12,7 @@ import (
 func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
-	router := NewRouterWithClient(zap.NewNop(), nil)
+	router := NewRouterWithClient(zap.NewNop(), nil, nil, false)
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	recorder := httptest.NewRecorder()
 

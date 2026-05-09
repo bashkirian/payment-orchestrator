@@ -11,6 +11,7 @@ import (
 	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
 	apihttp "github.com/bashkirian/fintech-project/services/api/internal/http"
 	"github.com/bashkirian/fintech-project/services/api/internal/logger"
+	"github.com/bashkirian/fintech-project/services/api/internal/redisclient"
 )
 
 func main() {
@@ -24,6 +25,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	log, err := logger.New(cfg)
 	if err != nil {
@@ -39,7 +43,13 @@ func run() error {
 	}
 	defer func() { _ = orchestratorClient.Close() }()
 
-	handler := apihttp.NewRouter(log, orchestratorClient)
+	redisClient, err := redisclient.New(ctx, cfg.RedisAddr, cfg.RedisPassword)
+	if err != nil {
+		return err
+	}
+	defer redisClient.Close()
+
+	handler := apihttp.NewRouter(log, orchestratorClient, redisClient, cfg.RateLimitEnabled)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
@@ -48,9 +58,6 @@ func run() error {
 		WriteTimeout:      cfg.WriteTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	errCh := make(chan error, 1)
 	go func() {
