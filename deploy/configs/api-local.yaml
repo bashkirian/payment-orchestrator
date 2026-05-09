@@ -1,9 +1,0 @@
-env: development
-log_level: info
-http_addr: ":8080"
-orchestrator_addr: "localhost:50051"
-shutdown_timeout: 10s
-
-redis_addr: "localhost:6379"
-redis_password: ""
-rate_limit_enabled: false
