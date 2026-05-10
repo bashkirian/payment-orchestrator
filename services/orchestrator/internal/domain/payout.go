@@ -65,6 +65,9 @@ type PayoutRepository interface {
 	CreatePayout(ctx context.Context, params CreatePayoutParams) (Payout, error)
 	GetPayout(ctx context.Context, id uuid.UUID) (Payout, error)
 	CancelPayout(ctx context.Context, id uuid.UUID, cancelableStates []PayoutState) (Payout, error)
+	// UpdatePayoutExternalID records the provider reference ID and transitions
+	// the payout to newState atomically.
+	UpdatePayoutExternalID(ctx context.Context, id uuid.UUID, externalID string, newState PayoutState) (Payout, error)
 }
 
 // IdempotencyRepository provides atomic idempotency key management.

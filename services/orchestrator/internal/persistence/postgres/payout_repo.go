@@ -46,6 +46,21 @@ func (r *PayoutRepo) GetPayout(ctx context.Context, id uuid.UUID) (domain.Payout
 	return toDomainPayout(row), nil
 }
 
+func (r *PayoutRepo) UpdatePayoutExternalID(ctx context.Context, id uuid.UUID, externalID string, newState domain.PayoutState) (domain.Payout, error) {
+	row, err := r.q.UpdatePayoutState(ctx, sqlcgen.UpdatePayoutStateParams{
+		ID:         id,
+		State:      string(newState),
+		ExternalID: &externalID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Payout{}, ErrNotFound
+		}
+		return domain.Payout{}, err
+	}
+	return toDomainPayout(row), nil
+}
+
 func (r *PayoutRepo) CancelPayout(ctx context.Context, id uuid.UUID, cancelableStates []domain.PayoutState) (domain.Payout, error) {
 	states := make([]string, len(cancelableStates))
 	for i, s := range cancelableStates {

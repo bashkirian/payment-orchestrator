@@ -14,6 +14,7 @@ import (
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/postgres"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/sqlcgen"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
 )
 
 // errIdempotencyKeyExists is a sentinel used to signal a key conflict inside RunInTx.
@@ -32,13 +33,15 @@ type PayoutServiceServer struct {
 	log        *zap.Logger
 	pool       *pgxpool.Pool
 	payoutRepo domain.PayoutRepository
+	registry   *provider.Registry
 }
 
-func newPayoutServiceServer(log *zap.Logger, pool *pgxpool.Pool) *PayoutServiceServer {
+func newPayoutServiceServer(log *zap.Logger, pool *pgxpool.Pool, registry *provider.Registry) *PayoutServiceServer {
 	return &PayoutServiceServer{
 		log:        log,
 		pool:       pool,
 		payoutRepo: postgres.NewPayoutRepo(sqlcgen.New(pool)),
+		registry:   registry,
 	}
 }
 
@@ -103,10 +106,19 @@ func (s *PayoutServiceServer) CreatePayout(
 
 	switch {
 	case txErr == nil:
-		// Happy path: new payout created.
+		// Happy path: new payout created — submit to the payment provider.
+		payout := result.newPayout
+		externalID, providerErr := s.submitToProvider(ctx, payout)
+		if providerErr != nil {
+			return nil, providerErr
+		}
+		updated, err := s.payoutRepo.UpdatePayoutExternalID(ctx, payout.ID, externalID, domain.PayoutStateProcessing)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "update payout external_id: %v", err)
+		}
 		return &orchestratorv1.CreatePayoutResponse{
-			PayoutId: result.newPayout.ID.String(),
-			Status:   string(result.newPayout.State),
+			PayoutId: updated.ID.String(),
+			Status:   string(updated.State),
 		}, nil
 
 	case errors.Is(txErr, errIdempotencyKeyExists):
@@ -128,6 +140,39 @@ func (s *PayoutServiceServer) CreatePayout(
 	default:
 		return nil, status.Errorf(codes.Internal, "create payout: %v", txErr)
 	}
+}
+
+// submitToProvider looks up the provider for the payout's rail and calls
+// SendPayout.  It maps provider.RetryableError to appropriate gRPC status codes.
+func (s *PayoutServiceServer) submitToProvider(ctx context.Context, payout domain.Payout) (string, error) {
+	if s.registry == nil {
+		return "", status.Error(codes.Internal, "provider registry not configured")
+	}
+	providerClient, err := s.registry.Get(payout.Rail)
+	if err != nil {
+		return "", status.Errorf(codes.Internal, "no provider for rail %q: %v", payout.Rail, err)
+	}
+	externalID, err := providerClient.SendPayout(ctx, payout)
+	if err != nil {
+		var re *provider.RetryableError
+		if errors.As(err, &re) && !re.Retryable {
+			s.log.Warn("provider rejected payout (non-retryable)",
+				zap.String("payout_id", payout.ID.String()),
+				zap.Error(err),
+			)
+			return "", status.Errorf(codes.FailedPrecondition, "provider rejected payout: %v", err)
+		}
+		s.log.Error("provider error (retryable)",
+			zap.String("payout_id", payout.ID.String()),
+			zap.Error(err),
+		)
+		return "", status.Errorf(codes.Unavailable, "provider temporarily unavailable: %v", err)
+	}
+	s.log.Info("provider accepted payout",
+		zap.String("payout_id", payout.ID.String()),
+		zap.String("external_id", externalID),
+	)
+	return externalID, nil
 }
 
 func (s *PayoutServiceServer) GetPayout(

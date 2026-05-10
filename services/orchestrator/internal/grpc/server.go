@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
 )
 
 // Server wraps a gRPC server with health checking and reflection.
@@ -19,10 +20,10 @@ type Server struct {
 	log *zap.Logger
 }
 
-func New(log *zap.Logger, pool *pgxpool.Pool) *Server {
+func New(log *zap.Logger, pool *pgxpool.Pool, registry *provider.Registry) *Server {
 	srv := grpc.NewServer()
 
-	orchestratorv1.RegisterPayoutServiceServer(srv, newPayoutServiceServer(log, pool))
+	orchestratorv1.RegisterPayoutServiceServer(srv, newPayoutServiceServer(log, pool, registry))
 
 	healthSvc := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(srv, healthSvc)
@@ -42,3 +43,4 @@ func (s *Server) GracefulStop() {
 	s.log.Info("stopping grpc server")
 	s.srv.GracefulStop()
 }
+
