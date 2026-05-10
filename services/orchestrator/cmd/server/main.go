@@ -17,6 +17,9 @@ import (
 	"github.com/bashkirian/fintech-project/libs/observability"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/config"
 	grpcserver "github.com/bashkirian/fintech-project/services/orchestrator/internal/grpc"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
+	stripeprovider "github.com/bashkirian/fintech-project/services/orchestrator/internal/provider/stripe"
 )
 
 func main() {
@@ -75,7 +78,14 @@ func run(cfgFile string) error {
 		log.Warn("database ping failed; continuing without DB", zap.Error(err))
 	}
 
-	grpcSrv := grpcserver.New(log, pool)
+	registry := provider.NewRegistry()
+	registry.Register(domain.RailCard, stripeprovider.New(stripeprovider.Config{
+		APIKey:         cfg.Stripe.APIKey,
+		MaxRetries:     cfg.Stripe.MaxRetries,
+		TimeoutSeconds: cfg.Stripe.TimeoutSeconds,
+	}))
+
+	grpcSrv := grpcserver.New(log, pool, registry)
 
 	grpcLis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

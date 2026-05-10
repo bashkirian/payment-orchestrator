@@ -15,6 +15,14 @@ type Config struct {
 	HTTPAddr        string        `yaml:"http_addr"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 	DatabaseURL     string        `yaml:"database_url"`
+	Stripe          StripeConfig  `yaml:"stripe"`
+}
+
+// StripeConfig holds Stripe-specific tunables.
+type StripeConfig struct {
+	APIKey         string `yaml:"api_key"`
+	MaxRetries     int64  `yaml:"max_retries"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
 }
 
 func Load(path string) (Config, error) {
