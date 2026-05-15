@@ -19,6 +19,7 @@ import (
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
 	grpcserver "github.com/bashkirian/fintech-project/services/orchestrator/internal/grpc"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
+	mockprovider "github.com/bashkirian/fintech-project/services/orchestrator/internal/provider/mock"
 	stripeprovider "github.com/bashkirian/fintech-project/services/orchestrator/internal/provider/stripe"
 )
 
@@ -84,6 +85,7 @@ func run(cfgFile string) error {
 		MaxRetries:     cfg.Stripe.MaxRetries,
 		TimeoutSeconds: cfg.Stripe.TimeoutSeconds,
 	}))
+	registry.Register(domain.RailCrypto, &mockprovider.Provider{})
 
 	grpcSrv := grpcserver.New(log, pool, registry)
 

@@ -23,6 +23,8 @@ import (
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/postgres"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/sqlcgen"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
+	mockprovider "github.com/bashkirian/fintech-project/services/orchestrator/internal/provider/mock"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -55,7 +57,7 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 	migrationSQL := `
 	CREATE TABLE payouts (
 	    id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-	    state        text        NOT NULL CHECK (state IN ('created', 'queued', 'pending', 'processing', 'completed', 'succeeded', 'failed', 'canceled')),
+	    state        text        NOT NULL CHECK (state IN ('created', 'queued', 'pending', 'processing', 'completed', 'succeeded', 'sent', 'failed', 'canceled')),
 	    amount_cents bigint      NOT NULL CHECK (amount_cents > 0),
 	    currency     text        NOT NULL,
 	    rail         text        NOT NULL CHECK (rail IN ('card', 'crypto')),
@@ -97,12 +99,18 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 
 // payoutTestServer holds test dependencies
 type payoutTestServer struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	registry *provider.Registry
 }
 
 func newTestServer(t *testing.T, pool *pgxpool.Pool) *payoutTestServer {
+	t.Helper()
+	reg := provider.NewRegistry()
+	reg.Register(domain.RailCard, &mockprovider.Provider{})
+	reg.Register(domain.RailCrypto, &mockprovider.Provider{})
 	return &payoutTestServer{
-		pool: pool,
+		pool:     pool,
+		registry: reg,
 	}
 }
 
@@ -158,9 +166,30 @@ func (s *payoutTestServer) createPayout(
 
 	switch {
 	case txErr == nil:
+		payout := result.newPayout
+		// Attempt to send via provider, mirroring production logic.
+		client, err := s.registry.Get(payout.Rail)
+		if err != nil {
+			repo := postgres.NewPayoutRepo(sqlcgen.New(s.pool))
+			updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{State: domain.PayoutStateFailed})
+			payout = updated
+		} else {
+			extID, sendErr := client.SendPayout(ctx, payout)
+			repo := postgres.NewPayoutRepo(sqlcgen.New(s.pool))
+			if sendErr != nil {
+				updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{State: domain.PayoutStateFailed})
+				payout = updated
+			} else {
+				updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+					State:      domain.PayoutStateSent,
+					ExternalID: &extID,
+				})
+				payout = updated
+			}
+		}
 		return &orchestratorv1.CreatePayoutResponse{
-			PayoutId: result.newPayout.ID.String(),
-			Status:   string(result.newPayout.State),
+			PayoutId: payout.ID.String(),
+			Status:   string(payout.State),
 		}, nil
 
 	case errors.Is(txErr, errIdempotencyKeyExists):
@@ -273,7 +302,7 @@ func TestCreatePayout_NewPayout(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.PayoutId)
-	assert.Equal(t, "created", resp.Status)
+	assert.Equal(t, "sent", resp.Status)
 
 	// Verify payout was created
 	payoutID, err := uuid.Parse(resp.PayoutId)
@@ -548,12 +577,12 @@ func TestGetPayout_Success_Integration(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, createResp.PayoutId, resp.GetPayoutId())
-	assert.Equal(t, "created", resp.GetStatus())
+	assert.Equal(t, "sent", resp.GetStatus())
 	assert.Equal(t, int64(5000), resp.GetAmount())
 	assert.Equal(t, "USD", resp.GetCurrency())
 	assert.Equal(t, "card", resp.GetRail())
 	assert.Equal(t, "stripe", resp.GetProvider())
-	assert.Empty(t, resp.GetExternalId(), "external_id should be empty for new payout")
+	assert.NotEmpty(t, resp.GetExternalId(), "external_id should be set after send")
 }
 
 func TestGetPayout_FieldsMatchCreate_Integration(t *testing.T) {
@@ -678,20 +707,25 @@ func TestCancelPayout_Created_Integration(t *testing.T) {
 	ctx, pool, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	server := newTestServer(t, pool)
-
-	createResp, err := server.createPayout(ctx, "cancel-key-1", "cancel-hash-1", 5000, "USD", "card")
+	// Insert directly in 'created' state — createPayout now transitions to 'sent',
+	// which is not cancelable.
+	row, err := sqlcgen.New(pool).CreatePayout(ctx, sqlcgen.CreatePayoutParams{
+		State: "created", AmountCents: 5000, Currency: "USD", Rail: "card", Provider: "stripe",
+	})
 	require.NoError(t, err)
+	payoutID := row.ID.String()
+
+	server := newTestServer(t, pool)
 
 	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	resp, err := server.cancelPayout(ctx2, createResp.PayoutId)
+	resp, err := server.cancelPayout(ctx2, payoutID)
 	require.NoError(t, err)
 	assert.True(t, resp.GetSuccess())
 
 	// Verify state is now canceled
-	getResp, err := server.getPayout(ctx, createResp.PayoutId)
+	getResp, err := server.getPayout(ctx, payoutID)
 	require.NoError(t, err)
 	assert.Equal(t, "canceled", getResp.GetStatus())
 }
