@@ -15,6 +15,7 @@ const (
 	PayoutStatePending    PayoutState = "pending"
 	PayoutStateProcessing PayoutState = "processing"
 	PayoutStateCompleted  PayoutState = "completed"
+	PayoutStateSent       PayoutState = "sent"
 	PayoutStateFailed     PayoutState = "failed"
 	PayoutStateCanceled   PayoutState = "canceled"
 )
@@ -61,13 +62,16 @@ type CreatePayoutParams struct {
 	ExternalID  *string
 }
 
+type UpdatePayoutParams struct {
+	State      PayoutState
+	ExternalID *string
+}
+
 type PayoutRepository interface {
 	CreatePayout(ctx context.Context, params CreatePayoutParams) (Payout, error)
 	GetPayout(ctx context.Context, id uuid.UUID) (Payout, error)
+	UpdatePayoutState(ctx context.Context, id uuid.UUID, params UpdatePayoutParams) (Payout, error)
 	CancelPayout(ctx context.Context, id uuid.UUID, cancelableStates []PayoutState) (Payout, error)
-	// UpdatePayoutExternalID records the provider reference ID and transitions
-	// the payout to newState atomically.
-	UpdatePayoutExternalID(ctx context.Context, id uuid.UUID, externalID string, newState PayoutState) (Payout, error)
 }
 
 // IdempotencyRepository provides atomic idempotency key management.

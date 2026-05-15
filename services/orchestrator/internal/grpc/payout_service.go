@@ -106,19 +106,12 @@ func (s *PayoutServiceServer) CreatePayout(
 
 	switch {
 	case txErr == nil:
-		// Happy path: new payout created — submit to the payment provider.
+		// Happy path: new payout created — attempt to send via provider.
 		payout := result.newPayout
-		externalID, providerErr := s.submitToProvider(ctx, payout)
-		if providerErr != nil {
-			return nil, providerErr
-		}
-		updated, err := s.payoutRepo.UpdatePayoutExternalID(ctx, payout.ID, externalID, domain.PayoutStateProcessing)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "update payout external_id: %v", err)
-		}
+		payout = s.sendPayout(ctx, payout)
 		return &orchestratorv1.CreatePayoutResponse{
-			PayoutId: updated.ID.String(),
-			Status:   string(updated.State),
+			PayoutId: payout.ID.String(),
+			Status:   string(payout.State),
 		}, nil
 
 	case errors.Is(txErr, errIdempotencyKeyExists):
@@ -142,37 +135,58 @@ func (s *PayoutServiceServer) CreatePayout(
 	}
 }
 
-// submitToProvider looks up the provider for the payout's rail and calls
-// SendPayout.  It maps provider.RetryableError to appropriate gRPC status codes.
-func (s *PayoutServiceServer) submitToProvider(ctx context.Context, payout domain.Payout) (string, error) {
-	if s.registry == nil {
-		return "", status.Error(codes.Internal, "provider registry not configured")
-	}
-	providerClient, err := s.registry.Get(payout.Rail)
+// sendPayout looks up the provider for the payout's rail, calls SendPayout,
+// and persists the resulting state (sent + external_id, or failed).
+// RetryableError is used to distinguish terminal vs transient provider failures
+// for logging purposes; both result in a failed state persisted to the DB.
+func (s *PayoutServiceServer) sendPayout(ctx context.Context, payout domain.Payout) domain.Payout {
+	client, err := s.registry.Get(payout.Rail)
 	if err != nil {
-		return "", status.Errorf(codes.Internal, "no provider for rail %q: %v", payout.Rail, err)
+		s.log.Error("no provider for rail", zap.String("rail", string(payout.Rail)), zap.Error(err))
+		updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+			State: domain.PayoutStateFailed,
+		})
+		if updateErr != nil {
+			s.log.Error("failed to mark payout as failed", zap.String("payout_id", payout.ID.String()), zap.Error(updateErr))
+			return payout
+		}
+		return updated
 	}
-	externalID, err := providerClient.SendPayout(ctx, payout)
-	if err != nil {
+
+	extID, sendErr := client.SendPayout(ctx, payout)
+	if sendErr != nil {
 		var re *provider.RetryableError
-		if errors.As(err, &re) && !re.Retryable {
+		if errors.As(sendErr, &re) && !re.Retryable {
 			s.log.Warn("provider rejected payout (non-retryable)",
 				zap.String("payout_id", payout.ID.String()),
-				zap.Error(err),
+				zap.Error(sendErr),
 			)
-			return "", status.Errorf(codes.FailedPrecondition, "provider rejected payout: %v", err)
+		} else {
+			s.log.Error("provider error (retryable or unknown)",
+				zap.String("payout_id", payout.ID.String()),
+				zap.Error(sendErr),
+			)
 		}
-		s.log.Error("provider error (retryable)",
-			zap.String("payout_id", payout.ID.String()),
-			zap.Error(err),
-		)
-		return "", status.Errorf(codes.Unavailable, "provider temporarily unavailable: %v", err)
+		updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+			State: domain.PayoutStateFailed,
+		})
+		if updateErr != nil {
+			s.log.Error("failed to mark payout as failed", zap.String("payout_id", payout.ID.String()), zap.Error(updateErr))
+			return payout
+		}
+		return updated
 	}
-	s.log.Info("provider accepted payout",
-		zap.String("payout_id", payout.ID.String()),
-		zap.String("external_id", externalID),
-	)
-	return externalID, nil
+
+	updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+		State:      domain.PayoutStateSent,
+		ExternalID: &extID,
+	})
+	if updateErr != nil {
+		s.log.Error("failed to mark payout as sent", zap.String("payout_id", payout.ID.String()), zap.Error(updateErr))
+		return payout
+	}
+	s.log.Info("payout sent", zap.String("payout_id", payout.ID.String()), zap.String("external_id", extID))
+	return updated
 }
 
 func (s *PayoutServiceServer) GetPayout(
