@@ -140,6 +140,18 @@ func (s *PayoutServiceServer) CreatePayout(
 // RetryableError is used to distinguish terminal vs transient provider failures
 // for logging purposes; both result in a failed state persisted to the DB.
 func (s *PayoutServiceServer) sendPayout(ctx context.Context, payout domain.Payout) domain.Payout {
+	if s.registry == nil {
+		s.log.Error("provider registry not configured", zap.String("payout_id", payout.ID.String()))
+		updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+			State: domain.PayoutStateFailed,
+		})
+		if updateErr != nil {
+			s.log.Error("failed to mark payout as failed", zap.String("payout_id", payout.ID.String()), zap.Error(updateErr))
+			return payout
+		}
+		return updated
+	}
+
 	client, err := s.registry.Get(payout.Rail)
 	if err != nil {
 		s.log.Error("no provider for rail", zap.String("rail", string(payout.Rail)), zap.Error(err))
