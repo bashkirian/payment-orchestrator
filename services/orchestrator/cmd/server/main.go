@@ -16,8 +16,8 @@ import (
 
 	"github.com/bashkirian/fintech-project/libs/observability"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/config"
-	grpcserver "github.com/bashkirian/fintech-project/services/orchestrator/internal/grpc"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
+	grpcserver "github.com/bashkirian/fintech-project/services/orchestrator/internal/grpc"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
 	stripeprovider "github.com/bashkirian/fintech-project/services/orchestrator/internal/provider/stripe"
 )
