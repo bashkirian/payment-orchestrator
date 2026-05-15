@@ -43,4 +43,3 @@ func (s *Server) GracefulStop() {
 	s.log.Info("stopping grpc server")
 	s.srv.GracefulStop()
 }
-

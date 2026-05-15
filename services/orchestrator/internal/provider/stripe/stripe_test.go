@@ -19,8 +19,9 @@ import (
 )
 
 // stripeHandler is a minimal Stripe API stub that routes:
-//   POST /v1/payment_intents        → createHandler
-//   POST /v1/payment_intents/*/cancel → cancelHandler
+//
+//	POST /v1/payment_intents        → createHandler
+//	POST /v1/payment_intents/*/cancel → cancelHandler
 type stripeHandler struct {
 	createHandler func(w http.ResponseWriter, r *http.Request)
 	cancelHandler func(w http.ResponseWriter, r *http.Request)

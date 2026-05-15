@@ -45,7 +45,7 @@ fmt: ## Run go fmt and goimports for all services
 			cd services/$$svc && go fmt ./... && cd ../..; \
 		fi; \
 	done
-	goimports -w ./services
+	$(GOPATH_BIN)/goimports -w ./services
 
 .PHONY: lint
 lint: ## Run linter for all services
