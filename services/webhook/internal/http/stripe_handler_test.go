@@ -348,8 +348,8 @@ func TestStripeWebhookHandler_ResponseHelpers(t *testing.T) {
 // Test that domain event types are correctly mapped
 func TestStripeWebhookHandler_EventTypeMapping(t *testing.T) {
 	tests := []struct {
-		stripeType      stripe.EventType
-		expectedStatus  string
+		stripeType     stripe.EventType
+		expectedStatus string
 	}{
 		{stripe.EventTypePaymentIntentSucceeded, string(domain.EventTypePayoutSucceeded)},
 		{stripe.EventTypePaymentIntentPaymentFailed, string(domain.EventTypePayoutFailed)},

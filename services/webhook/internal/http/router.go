@@ -17,10 +17,10 @@ import (
 
 // Dependencies holds all dependencies needed by the router.
 type Dependencies struct {
-	Log             *zap.Logger
-	RedisClient     rueidis.Client
-	Orchestrator    *grpc.OrchestratorClient
-	StripeSecret    string
+	Log          *zap.Logger
+	RedisClient  rueidis.Client
+	Orchestrator *grpc.OrchestratorClient
+	StripeSecret string
 }
 
 // NewRouter creates the HTTP router with all endpoints configured.
