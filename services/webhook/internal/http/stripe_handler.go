@@ -57,7 +57,7 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		h.writeError(w, http.StatusBadRequest, "failed to read body")
 		return
 	}
-	defer r.Body.Close()
+	_ = r.Body.Close()
 
 	// Get the Stripe signature header
 	signature := r.Header.Get("Stripe-Signature")

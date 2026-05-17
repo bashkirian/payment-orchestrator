@@ -14,8 +14,8 @@ import (
 
 	"github.com/bashkirian/fintech-project/libs/observability"
 	"github.com/bashkirian/fintech-project/services/webhook/internal/config"
-	webhookhttp "github.com/bashkirian/fintech-project/services/webhook/internal/http"
 	"github.com/bashkirian/fintech-project/services/webhook/internal/grpc"
+	webhookhttp "github.com/bashkirian/fintech-project/services/webhook/internal/http"
 )
 
 func main() {
@@ -80,7 +80,11 @@ func run(cfgFile string) error {
 	if err != nil {
 		return err
 	}
-	defer orchestratorClient.Close()
+	defer func() {
+		if err := orchestratorClient.Close(); err != nil {
+			log.Error("close orchestrator client", zap.Error(err))
+		}
+	}()
 	log.Info("connected to orchestrator", zap.String("addr", cfg.OrchestratorAddr))
 
 	handler := webhookhttp.NewRouter(webhookhttp.Dependencies{
