@@ -21,7 +21,7 @@ POSTGRES_APP_PASSWORD ?= fintech_app_change_me
 REDIS_PORT ?= 6379
 REDIS_PASSWORD ?= redis_change_me
 
-GOOSE_IMAGE := pressly/goose:latest
+GOOSE_IMAGE := mvdan/goose:latest
 GOOSE_DSN := postgres://$(POSTGRES_APP_USER):$(POSTGRES_APP_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/$(POSTGRES_APP_DB)?sslmode=disable
 
 .PHONY: help
@@ -153,26 +153,19 @@ create-migration: ## Create a new migration (usage: make create-migration name=a
 		-v $(ROOT_APP_DIR)/$(MIGRATIONS_DIR):/migrations \
 		$(GOOSE_IMAGE) -dir /migrations create $(name) sql
 
+GOOSE := $(shell which goose 2>/dev/null || echo $(HOME)/go/bin/goose)
+
 .PHONY: migrate-up
-migrate-up: ## Run migrations up against local Postgres
-	docker run --rm \
-		--network fintech_local_net \
-		-v $(ROOT_APP_DIR)/$(MIGRATIONS_DIR):/migrations \
-		$(GOOSE_IMAGE) -dir /migrations postgres "$(GOOSE_DSN)" up
+migrate-up: ## Run migrations up against local Postgres (requires goose: go install github.com/pressly/goose/v3/cmd/goose@latest)
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "postgres://$(POSTGRES_APP_USER):$(POSTGRES_APP_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_APP_DB)?sslmode=disable" up
 
 .PHONY: migrate-down
 migrate-down: ## Roll back one migration against local Postgres
-	docker run --rm \
-		--network fintech_local_net \
-		-v $(ROOT_APP_DIR)/$(MIGRATIONS_DIR):/migrations \
-		$(GOOSE_IMAGE) -dir /migrations postgres "$(GOOSE_DSN)" down
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "postgres://$(POSTGRES_APP_USER):$(POSTGRES_APP_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_APP_DB)?sslmode=disable" down
 
 .PHONY: migrate-status
 migrate-status: ## Show migration status against local Postgres
-	docker run --rm \
-		--network fintech_local_net \
-		-v $(ROOT_APP_DIR)/$(MIGRATIONS_DIR):/migrations \
-		$(GOOSE_IMAGE) -dir /migrations postgres "$(GOOSE_DSN)" status
+	@$(GOOSE) -dir $(MIGRATIONS_DIR) postgres "postgres://$(POSTGRES_APP_USER):$(POSTGRES_APP_PASSWORD)@localhost:$(POSTGRES_PORT)/$(POSTGRES_APP_DB)?sslmode=disable" status
 
 # Mock generation
 .PHONY: mocks
@@ -240,3 +233,35 @@ helm-uninstall: ## Uninstall helm chart (usage: make helm-uninstall env=dev)
 clean: ## Clean build artifacts
 	rm -rf ./bin
 	rm -f profile.cov
+
+# Demo
+.PHONY: demo
+demo: ## Run local demo: start orchestrator and webhook services (requires make up && make build)
+	@echo "Starting orchestrator..."
+	@./bin/orchestrator start --config ./deploy/configs/orchestrator-local.yaml &
+	@sleep 2
+	@echo "Starting webhook..."
+	@./bin/webhook start --config ./deploy/configs/webhook-local.yaml
+
+.PHONY: demo-down
+demo-down: ## Stop demo services
+	@pkill -f "bin/orchestrator" 2>/dev/null || true
+	@pkill -f "bin/webhook" 2>/dev/null || true
+	@echo "Demo services stopped"
+
+.PHONY: demo-stripe
+demo-stripe: ## Start Stripe CLI webhook forwarder (runs in foreground)
+	@echo "Starting Stripe webhook forwarder..."
+	@echo "Webhooks will be forwarded to http://localhost:8082/v1/webhooks/stripe"
+	@stripe listen --forward-to localhost:8082/v1/webhooks/stripe
+
+.PHONY: demo-trigger
+demo-trigger: ## Trigger test Stripe webhook events
+	@echo "Triggering payment_intent.succeeded..."
+	@stripe trigger payment_intent.succeeded
+	@echo ""
+	@echo "Triggering payment_intent.payment_failed..."
+	@stripe trigger payment_intent.payment_failed
+	@echo ""
+	@echo "Triggering payment_intent.canceled..."
+	@stripe trigger payment_intent.canceled
