@@ -6,22 +6,48 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/redis/rueidis"
 	"go.uber.org/zap"
 
 	"github.com/bashkirian/fintech-project/libs/observability"
+	"github.com/bashkirian/fintech-project/services/webhook/internal/dedup"
+	"github.com/bashkirian/fintech-project/services/webhook/internal/grpc"
+	"github.com/bashkirian/fintech-project/services/webhook/internal/stripeadapter"
 )
 
-func NewRouter(log *zap.Logger) http.Handler {
+// Dependencies holds all dependencies needed by the router.
+type Dependencies struct {
+	Log             *zap.Logger
+	RedisClient     rueidis.Client
+	Orchestrator    *grpc.OrchestratorClient
+	StripeSecret    string
+}
+
+// NewRouter creates the HTTP router with all endpoints configured.
+func NewRouter(deps Dependencies) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestIDMiddleware)
 	r.Use(middleware.Recoverer)
-	r.Use(accessLog(log))
+	r.Use(accessLog(deps.Log))
 
+	// Health check endpoint
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Stripe webhook endpoint
+	stripeParser := stripeadapter.NewEventParser()
+	dedupService := dedup.NewService(deps.RedisClient, 0) // uses default TTL
+	stripeHandler := NewStripeWebhookHandler(
+		stripeParser,
+		dedupService,
+		deps.Orchestrator.Payout,
+		deps.StripeSecret,
+		deps.Log,
+	)
+	r.Post("/v1/webhooks/stripe", stripeHandler.ServeHTTP)
 
 	return r
 }
