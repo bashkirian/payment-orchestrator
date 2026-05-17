@@ -29,3 +29,6 @@ RETURNING *;
 
 -- name: GetIdempotencyKey :one
 SELECT * FROM idempotency_keys WHERE key = @key;
+
+-- name: FindPayoutByExternalID :one
+SELECT * FROM payouts WHERE external_id = @external_id;

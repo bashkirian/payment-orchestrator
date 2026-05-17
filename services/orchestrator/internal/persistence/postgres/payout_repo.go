@@ -79,6 +79,17 @@ func (r *PayoutRepo) CancelPayout(ctx context.Context, id uuid.UUID, cancelableS
 	return toDomainPayout(row), nil
 }
 
+func (r *PayoutRepo) FindByExternalID(ctx context.Context, externalID string) (domain.Payout, error) {
+	row, err := r.q.FindPayoutByExternalID(ctx, &externalID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Payout{}, ErrNotFound
+		}
+		return domain.Payout{}, err
+	}
+	return toDomainPayout(row), nil
+}
+
 type IdempotencyRepo struct {
 	q sqlcgen.Querier
 }

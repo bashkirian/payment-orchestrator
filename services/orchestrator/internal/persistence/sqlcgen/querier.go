@@ -15,6 +15,7 @@ type Querier interface {
 	// Returns the updated row; pgx.ErrNoRows if not found or state not cancelable.
 	CancelPayoutIfCancelable(ctx context.Context, arg CancelPayoutIfCancelableParams) (Payout, error)
 	CreatePayout(ctx context.Context, arg CreatePayoutParams) (Payout, error)
+	FindPayoutByExternalID(ctx context.Context, externalID *string) (Payout, error)
 	GetIdempotencyKey(ctx context.Context, key string) (IdempotencyKey, error)
 	GetPayout(ctx context.Context, id uuid.UUID) (Payout, error)
 	TryInsertIdempotencyKey(ctx context.Context, arg TryInsertIdempotencyKeyParams) (IdempotencyKey, error)
