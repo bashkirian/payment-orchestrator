@@ -6,3 +6,7 @@ read_header_timeout: 2s
 write_timeout: 10s
 idle_timeout: 30s
 shutdown_timeout: 10s
+stripe_webhook_secret: "whsec_test_secret"
+redis_addr: "localhost:6379"
+redis_password: ""
+orchestrator_addr: "localhost:9090"

@@ -17,6 +17,13 @@ type Config struct {
 	WriteTimeout      time.Duration `yaml:"write_timeout"`
 	IdleTimeout       time.Duration `yaml:"idle_timeout"`
 	ShutdownTimeout   time.Duration `yaml:"shutdown_timeout"`
+	// Stripe webhook configuration
+	StripeWebhookSecret string `yaml:"stripe_webhook_secret"`
+	// Redis configuration for deduplication
+	RedisAddr     string `yaml:"redis_addr"`
+	RedisPassword string `yaml:"redis_password"`
+	// Orchestrator gRPC address
+	OrchestratorAddr string `yaml:"orchestrator_addr"`
 }
 
 func Load(path string) (Config, error) {
@@ -29,6 +36,7 @@ func Load(path string) (Config, error) {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
 		ShutdownTimeout:   10 * time.Second,
+		OrchestratorAddr:  "localhost:9090",
 	}
 
 	data, err := os.ReadFile(path)

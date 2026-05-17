@@ -8,11 +8,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/redis/rueidis"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/bashkirian/fintech-project/libs/observability"
 	"github.com/bashkirian/fintech-project/services/webhook/internal/config"
 	webhookhttp "github.com/bashkirian/fintech-project/services/webhook/internal/http"
+	"github.com/bashkirian/fintech-project/services/webhook/internal/grpc"
 )
 
 func main() {
@@ -58,7 +61,34 @@ func run(cfgFile string) error {
 	}
 	defer func() { _ = log.Sync() }()
 
-	handler := webhookhttp.NewRouter(log)
+	// Initialize Redis client
+	var redisClient rueidis.Client
+	if cfg.RedisAddr != "" {
+		redisClient, err = rueidis.NewClient(rueidis.ClientOption{
+			InitAddress: []string{cfg.RedisAddr},
+			Password:    cfg.RedisPassword,
+		})
+		if err != nil {
+			return err
+		}
+		defer redisClient.Close()
+		log.Info("connected to redis", zap.String("addr", cfg.RedisAddr))
+	}
+
+	// Initialize orchestrator gRPC client
+	orchestratorClient, err := grpc.NewOrchestratorClient(cfg.OrchestratorAddr)
+	if err != nil {
+		return err
+	}
+	defer orchestratorClient.Close()
+	log.Info("connected to orchestrator", zap.String("addr", cfg.OrchestratorAddr))
+
+	handler := webhookhttp.NewRouter(webhookhttp.Dependencies{
+		Log:          log,
+		RedisClient:  redisClient,
+		Orchestrator: orchestratorClient,
+		StripeSecret: cfg.StripeWebhookSecret,
+	})
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
