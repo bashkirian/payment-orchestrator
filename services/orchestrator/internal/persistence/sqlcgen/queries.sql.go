@@ -82,6 +82,27 @@ func (q *Queries) CreatePayout(ctx context.Context, arg CreatePayoutParams) (Pay
 	return i, err
 }
 
+const findPayoutByExternalID = `-- name: FindPayoutByExternalID :one
+SELECT id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at FROM payouts WHERE external_id = $1
+`
+
+func (q *Queries) FindPayoutByExternalID(ctx context.Context, externalID *string) (Payout, error) {
+	row := q.db.QueryRow(ctx, findPayoutByExternalID, externalID)
+	var i Payout
+	err := row.Scan(
+		&i.ID,
+		&i.State,
+		&i.AmountCents,
+		&i.Currency,
+		&i.Rail,
+		&i.Provider,
+		&i.ExternalID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getIdempotencyKey = `-- name: GetIdempotencyKey :one
 SELECT key, request_hash, payout_id, created_at FROM idempotency_keys WHERE key = $1
 `

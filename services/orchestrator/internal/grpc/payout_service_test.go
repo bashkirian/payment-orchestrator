@@ -17,6 +17,7 @@ package grpc_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -53,6 +54,23 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err, "failed to get connection string")
 
+	// Wait for postgres to be ready
+	var lastErr error
+	for i := 0; i < 10; i++ {
+		pool, lastErr = pgxpool.New(ctx, connStr)
+		if lastErr != nil {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		_, lastErr = pool.Exec(ctx, "SELECT 1")
+		if lastErr == nil {
+			break
+		}
+		pool.Close()
+		time.Sleep(500 * time.Millisecond)
+	}
+	require.NoError(t, lastErr, "failed to connect to database after retries")
+
 	// Run migrations manually
 	migrationSQL := `
 	CREATE TABLE payouts (
@@ -79,10 +97,6 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 
 	CREATE INDEX idx_idempotency_keys_created_at ON idempotency_keys (created_at);
 	`
-
-	// Connect and run migrations
-	pool, err = pgxpool.New(ctx, connStr)
-	require.NoError(t, err, "failed to connect to database")
 
 	_, err = pool.Exec(ctx, migrationSQL)
 	require.NoError(t, err, "failed to run migrations")
@@ -832,14 +846,22 @@ func TestCancelPayout_AlreadyCanceled_Integration(t *testing.T) {
 
 	server := newTestServer(t, pool)
 
-	createResp, err := server.createPayout(ctx, "cancel-twice-key", "cancel-twice-hash", 5000, "USD", "card")
+	// Create payout directly in 'created' state (not via createPayout which sets 'sent')
+	row, err := sqlcgen.New(pool).CreatePayout(ctx, sqlcgen.CreatePayoutParams{
+		State:       "created",
+		AmountCents: 5000,
+		Currency:    "USD",
+		Rail:        "card",
+		Provider:    "stripe",
+	})
 	require.NoError(t, err)
+	payoutID := row.ID.String()
 
 	ctx2, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	// First cancel succeeds
-	resp, err := server.cancelPayout(ctx2, createResp.PayoutId)
+	resp, err := server.cancelPayout(ctx2, payoutID)
 	require.NoError(t, err)
 	assert.True(t, resp.GetSuccess())
 
@@ -847,11 +869,286 @@ func TestCancelPayout_AlreadyCanceled_Integration(t *testing.T) {
 	ctx3, cancel3 := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel3()
 
-	_, err = server.cancelPayout(ctx3, createResp.PayoutId)
+	_, err = server.cancelPayout(ctx3, payoutID)
 	require.Error(t, err)
 
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.FailedPrecondition, st.Code())
 	assert.Contains(t, st.Message(), `"canceled"`)
+}
+
+// ── ApplyProviderUpdate E2E tests ─────────────────────────────────────────────
+
+// applyProviderUpdate simulates the ApplyProviderUpdate gRPC method
+func (s *payoutTestServer) applyProviderUpdate(
+	ctx context.Context,
+	payoutID, providerStatus, providerReference string,
+) (*orchestratorv1.ApplyProviderUpdateResponse, error) {
+	if payoutID == "" {
+		return nil, status.Error(codes.InvalidArgument, "payout_id is required")
+	}
+
+	// Find payout by external_id or internal ID
+	payout, err := s.findPayoutByExternalIDOrID(ctx, payoutID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Map provider status to internal state
+	newState, err := mapProviderStatusToStateTest(providerStatus)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "unknown provider status: %s", providerStatus)
+	}
+
+	// Update payout state (preserve external_id)
+	_, err = postgres.NewPayoutRepo(sqlcgen.New(s.pool)).UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+		State:      newState,
+		ExternalID: payout.ExternalID, // Preserve existing external_id
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "update payout state: %v", err)
+	}
+
+	return &orchestratorv1.ApplyProviderUpdateResponse{Success: true}, nil
+}
+
+func (s *payoutTestServer) findPayoutByExternalIDOrID(ctx context.Context, ref string) (domain.Payout, error) {
+	// Try to find by external_id first
+	payout, err := postgres.NewPayoutRepo(sqlcgen.New(s.pool)).FindByExternalID(ctx, ref)
+	if err == nil {
+		return payout, nil
+	}
+
+	// If not found, try as internal UUID only if it parses as UUID
+	id, parseErr := uuid.Parse(ref)
+	if parseErr != nil {
+		// Not a valid UUID and not found by external_id -> not found
+		return domain.Payout{}, status.Errorf(codes.NotFound, "payout %s not found", ref)
+	}
+
+	payout, err = postgres.NewPayoutRepo(sqlcgen.New(s.pool)).GetPayout(ctx, id)
+	if err != nil {
+		if errors.Is(err, postgres.ErrNotFound) {
+			return domain.Payout{}, status.Errorf(codes.NotFound, "payout %s not found", ref)
+		}
+		return domain.Payout{}, status.Errorf(codes.Internal, "get payout: %v", err)
+	}
+	return payout, nil
+}
+
+func mapProviderStatusToStateTest(providerStatus string) (domain.PayoutState, error) {
+	switch providerStatus {
+	case "payout_succeeded":
+		return domain.PayoutStateCompleted, nil
+	case "payout_failed":
+		return domain.PayoutStateFailed, nil
+	case "payout_canceled":
+		return domain.PayoutStateCanceled, nil
+	default:
+		return "", fmt.Errorf("unknown provider status: %s", providerStatus)
+	}
+}
+
+// TestE2E_PayoutSucceededFlow tests the full flow:
+// 1. Create payout (goes to 'sent' state with external_id)
+// 2. Apply provider update (payout_succeeded)
+// 3. Verify final state is 'completed'
+func TestE2E_PayoutSucceededFlow(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	// Step 1: Create payout
+	createResp, err := server.createPayout(ctx, "e2e-success-key", "e2e-success-hash", 10000, "USD", "card")
+	require.NoError(t, err)
+	require.NotEmpty(t, createResp.PayoutId)
+	require.Equal(t, "sent", createResp.Status)
+
+	// Get the created payout to check external_id
+	payoutID, err := uuid.Parse(createResp.PayoutId)
+	require.NoError(t, err)
+
+	payout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+	require.NotNil(t, payout.ExternalID, "external_id should be set after send")
+	require.NotEmpty(t, *payout.ExternalID)
+
+	// Step 2: Simulate provider webhook (apply provider update with external_id)
+	externalID := *payout.ExternalID
+	updateResp, err := server.applyProviderUpdate(ctx, externalID, "payout_succeeded", "evt_success_123")
+	require.NoError(t, err)
+	require.True(t, updateResp.Success)
+
+	// Step 3: Verify final state is 'completed'
+	finalPayout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayoutStateCompleted, finalPayout.State)
+}
+
+// TestE2E_PayoutFailedFlow tests the flow when provider reports failure
+func TestE2E_PayoutFailedFlow(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	// Step 1: Create payout
+	createResp, err := server.createPayout(ctx, "e2e-failed-key", "e2e-failed-hash", 5000, "EUR", "card")
+	require.NoError(t, err)
+
+	payoutID, err := uuid.Parse(createResp.PayoutId)
+	require.NoError(t, err)
+
+	payout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+
+	// Step 2: Provider reports failure
+	externalID := *payout.ExternalID
+	updateResp, err := server.applyProviderUpdate(ctx, externalID, "payout_failed", "evt_failed_456")
+	require.NoError(t, err)
+	require.True(t, updateResp.Success)
+
+	// Step 3: Verify final state is 'failed'
+	finalPayout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayoutStateFailed, finalPayout.State)
+}
+
+// TestE2E_PayoutCanceledFlow tests the flow when provider reports cancellation
+func TestE2E_PayoutCanceledFlow(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	// Step 1: Create payout
+	createResp, err := server.createPayout(ctx, "e2e-canceled-key", "e2e-canceled-hash", 7500, "GBP", "card")
+	require.NoError(t, err)
+
+	payoutID, err := uuid.Parse(createResp.PayoutId)
+	require.NoError(t, err)
+
+	payout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+
+	// Step 2: Provider reports cancellation
+	externalID := *payout.ExternalID
+	updateResp, err := server.applyProviderUpdate(ctx, externalID, "payout_canceled", "evt_canceled_789")
+	require.NoError(t, err)
+	require.True(t, updateResp.Success)
+
+	// Step 3: Verify final state is 'canceled'
+	finalPayout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayoutStateCanceled, finalPayout.State)
+}
+
+// TestE2E_ApplyProviderUpdate_ByInternalID tests applying update using internal UUID
+func TestE2E_ApplyProviderUpdate_ByInternalID(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	// Create payout
+	createResp, err := server.createPayout(ctx, "e2e-internal-id-key", "e2e-internal-id-hash", 3000, "USD", "card")
+	require.NoError(t, err)
+
+	payoutID := createResp.PayoutId
+
+	// Apply update using internal UUID instead of external_id
+	updateResp, err := server.applyProviderUpdate(ctx, payoutID, "payout_succeeded", "evt_internal_id")
+	require.NoError(t, err)
+	require.True(t, updateResp.Success)
+
+	// Verify state changed
+	id, err := uuid.Parse(payoutID)
+	require.NoError(t, err)
+
+	finalPayout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayoutStateCompleted, finalPayout.State)
+}
+
+// TestE2E_ApplyProviderUpdate_NotFound tests error handling for non-existent payout
+func TestE2E_ApplyProviderUpdate_NotFound(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	// Try to apply update to non-existent payout using a valid UUID format
+	nonExistentUUID := uuid.New().String()
+	_, err := server.applyProviderUpdate(ctx, nonExistentUUID, "payout_succeeded", "evt_not_found")
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.NotFound, st.Code())
+}
+
+// TestE2E_ApplyProviderUpdate_InvalidStatus tests error handling for unknown status
+func TestE2E_ApplyProviderUpdate_InvalidStatus(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	// Create payout first
+	createResp, err := server.createPayout(ctx, "e2e-invalid-status-key", "e2e-invalid-status-hash", 1000, "USD", "card")
+	require.NoError(t, err)
+
+	payoutID, err := uuid.Parse(createResp.PayoutId)
+	require.NoError(t, err)
+
+	payout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+
+	// Try to apply unknown status
+	_, err = server.applyProviderUpdate(ctx, *payout.ExternalID, "unknown_status", "evt_invalid")
+	require.Error(t, err)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+}
+
+// TestE2E_IdempotentWebhookEvent tests that duplicate provider updates don't cause issues
+func TestE2E_IdempotentWebhookEvent(t *testing.T) {
+	ctx, pool, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	server := newTestServer(t, pool)
+
+	// Create payout
+	createResp, err := server.createPayout(ctx, "e2e-idempotent-webhook-key", "e2e-idempotent-webhook-hash", 2000, "USD", "card")
+	require.NoError(t, err)
+
+	payoutID, err := uuid.Parse(createResp.PayoutId)
+	require.NoError(t, err)
+
+	payout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+	externalID := *payout.ExternalID
+
+	// First update: succeeded
+	_, err = server.applyProviderUpdate(ctx, externalID, "payout_succeeded", "evt_idempotent_1")
+	require.NoError(t, err)
+
+	// Verify state is completed
+	finalPayout, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayoutStateCompleted, finalPayout.State)
+
+	// Second update with same external_id (simulating duplicate webhook)
+	// This should succeed (idempotent) - state stays completed
+	_, err = server.applyProviderUpdate(ctx, externalID, "payout_succeeded", "evt_idempotent_2")
+	require.NoError(t, err)
+
+	// Verify state is still completed
+	finalPayout2, err := postgres.NewPayoutRepo(sqlcgen.New(pool)).GetPayout(ctx, payoutID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.PayoutStateCompleted, finalPayout2.State)
 }

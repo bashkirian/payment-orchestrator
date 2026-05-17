@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -281,12 +282,83 @@ func (s *PayoutServiceServer) ApplyProviderUpdate(
 	ctx context.Context,
 	req *orchestratorv1.ApplyProviderUpdateRequest,
 ) (*orchestratorv1.ApplyProviderUpdateResponse, error) {
-	s.log.Info("ApplyProviderUpdate stub",
-		zap.String("payout_id", req.GetPayoutId()),
-		zap.String("provider_status", req.GetProviderStatus()),
-	)
 	if req.GetPayoutId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "payout_id is required")
 	}
+
+	s.log.Info("ApplyProviderUpdate",
+		zap.String("payout_id", req.GetPayoutId()),
+		zap.String("provider_status", req.GetProviderStatus()),
+		zap.String("provider_reference", req.GetProviderReference()),
+	)
+
+	// Find payout by external_id (provider reference like pi_xxx)
+	payout, err := s.findPayoutByExternalIDOrID(ctx, req.GetPayoutId())
+	if err != nil {
+		return nil, err
+	}
+
+	// Map provider status to internal state
+	newState, err := mapProviderStatusToState(req.GetProviderStatus())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "unknown provider status: %s", req.GetProviderStatus())
+	}
+
+	// Update the payout state (preserve external_id)
+	updated, err := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+		State:      newState,
+		ExternalID: payout.ExternalID, // Preserve existing external_id
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "update payout state: %v", err)
+	}
+
+	s.log.Info("payout state updated via provider webhook",
+		zap.String("payout_id", updated.ID.String()),
+		zap.String("external_id", req.GetPayoutId()),
+		zap.String("old_state", string(payout.State)),
+		zap.String("new_state", string(updated.State)),
+	)
+
 	return &orchestratorv1.ApplyProviderUpdateResponse{Success: true}, nil
+}
+
+// findPayoutByExternalIDOrID looks up a payout by external_id first (provider reference),
+// then by internal UUID if not found and the reference looks like a UUID.
+func (s *PayoutServiceServer) findPayoutByExternalIDOrID(ctx context.Context, ref string) (domain.Payout, error) {
+	// Try to find by external_id first (e.g., "pi_xxx" from Stripe or "mock-ext-xxx" from test)
+	payout, err := s.payoutRepo.FindByExternalID(ctx, ref)
+	if err == nil {
+		return payout, nil
+	}
+
+	// If not found by external_id, try as internal UUID only if it parses as UUID
+	id, parseErr := uuid.Parse(ref)
+	if parseErr != nil {
+		// Not a valid UUID and not found by external_id -> not found
+		return domain.Payout{}, status.Errorf(codes.NotFound, "payout %s not found", ref)
+	}
+
+	payout, err = s.payoutRepo.GetPayout(ctx, id)
+	if err != nil {
+		if errors.Is(err, postgres.ErrNotFound) {
+			return domain.Payout{}, status.Errorf(codes.NotFound, "payout %s not found", ref)
+		}
+		return domain.Payout{}, status.Errorf(codes.Internal, "get payout: %v", err)
+	}
+	return payout, nil
+}
+
+// mapProviderStatusToState converts webhook provider_status to internal PayoutState.
+func mapProviderStatusToState(providerStatus string) (domain.PayoutState, error) {
+	switch providerStatus {
+	case "payout_succeeded":
+		return domain.PayoutStateCompleted, nil
+	case "payout_failed":
+		return domain.PayoutStateFailed, nil
+	case "payout_canceled":
+		return domain.PayoutStateCanceled, nil
+	default:
+		return "", fmt.Errorf("unknown provider status: %s", providerStatus)
+	}
 }

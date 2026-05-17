@@ -102,6 +102,18 @@ func (m *mockQuerier) CancelPayoutIfCancelable(_ context.Context, arg sqlcgen.Ca
 	return sqlcgen.Payout{}, pgx.ErrNoRows
 }
 
+func (m *mockQuerier) FindPayoutByExternalID(_ context.Context, externalID *string) (sqlcgen.Payout, error) {
+	if externalID == nil {
+		return sqlcgen.Payout{}, pgx.ErrNoRows
+	}
+	for _, p := range m.payouts {
+		if p.ExternalID != nil && *p.ExternalID == *externalID {
+			return p, nil
+		}
+	}
+	return sqlcgen.Payout{}, pgx.ErrNoRows
+}
+
 // --- PayoutRepo tests ---
 
 func TestPayoutRepo_CreatePayout(t *testing.T) {
