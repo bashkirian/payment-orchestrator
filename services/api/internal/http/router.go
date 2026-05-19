@@ -17,8 +17,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/bashkirian/fintech-project/libs/errors"
-	"github.com/bashkirian/fintech-project/libs/grpcutil"
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
+	"github.com/bashkirian/fintech-project/libs/grpcutil"
 	apiconfig "github.com/bashkirian/fintech-project/services/api/internal/config"
 	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
 	apimiddleware "github.com/bashkirian/fintech-project/services/api/internal/http/middleware"
