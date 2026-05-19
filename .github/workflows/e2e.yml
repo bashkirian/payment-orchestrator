@@ -1,0 +1,57 @@
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-tests:
+    name: E2E Integration Tests
+    runs-on: ubuntu-latest
+    # Testcontainers requires Docker, which is available on ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run E2E tests
+        run: go test -v -timeout 180s ./services/orchestrator/internal/grpc/... -run "TestE2E"
+        env:
+          # Testcontainers will spin up PostgreSQL containers automatically
+          CGO_ENABLED: 0
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-logs
+          path: |
+            /tmp/testcontainers*
+          retention-days: 7
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run unit tests
+        run: go test -v -race -timeout 120s ./...

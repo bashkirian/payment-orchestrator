@@ -19,6 +19,7 @@ import (
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
 	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
 	apimiddleware "github.com/bashkirian/fintech-project/services/api/internal/http/middleware"
+	apiconfig "github.com/bashkirian/fintech-project/services/api/internal/config"
 )
 
 // PayoutClient is an interface for the payout gRPC client.
@@ -29,17 +30,25 @@ type PayoutClient interface {
 	CancelPayout(ctx context.Context, in *orchestratorv1.CancelPayoutRequest, opts ...grpc.CallOption) (*orchestratorv1.CancelPayoutResponse, error)
 }
 
-func NewRouter(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient, redis rueidis.Client, rateLimitEnabled bool) http.Handler {
-	return NewRouterWithClient(log, orchestrator.Payout, redis, rateLimitEnabled)
+// NewRouter creates a router with rate limiting from config.
+func NewRouter(log *zap.Logger, orchestrator *apigrpc.OrchestratorClient, redis rueidis.Client, cfg apiconfig.Config) http.Handler {
+	return NewRouterWithClient(log, orchestrator.Payout, redis, cfg)
 }
 
 // NewRouterWithClient creates a router with a PayoutClient interface for testing.
-func NewRouterWithClient(log *zap.Logger, client PayoutClient, redis rueidis.Client, rateLimitEnabled bool) http.Handler {
+func NewRouterWithClient(log *zap.Logger, client PayoutClient, redis rueidis.Client, cfg apiconfig.Config) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 	router.Use(accessLog(log))
-	router.Use(apimiddleware.RateLimit(log, redis, rateLimitEnabled))
+
+	// Configure rate limiter
+	rateLimitConfig := apimiddleware.RateLimitConfig{
+		KeyPrefix:         "ratelimit:global",
+		RequestsPerSecond: cfg.RateLimitRequestsPerSecond,
+		BurstSize:         cfg.RateLimitBurstSize,
+	}
+	router.Use(apimiddleware.RateLimitWithConfig(log, redis, cfg.RateLimitEnabled, rateLimitConfig))
 
 	router.Get("/health", func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

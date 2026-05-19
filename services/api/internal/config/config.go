@@ -24,6 +24,10 @@ type Config struct {
 	RedisPassword string
 	// RateLimitEnabled controls the rate-limit middleware. Disabled by default.
 	RateLimitEnabled bool
+	// RateLimitRequestsPerSecond is the rate at which tokens are added to the bucket.
+	RateLimitRequestsPerSecond float64
+	// RateLimitBurstSize is the maximum number of tokens in the bucket.
+	RateLimitBurstSize int64
 }
 
 func Load() (Config, error) {
@@ -38,9 +42,11 @@ func Load() (Config, error) {
 		LogLevel:         getEnv("API_LOG_LEVEL", "info"),
 		OrchestratorAddr: getEnv("API_ORCHESTRATOR_ADDR", "localhost:50051"),
 
-		RedisAddr:        getEnv("API_REDIS_ADDR", "localhost:6379"),
-		RedisPassword:    getEnv("API_REDIS_PASSWORD", ""),
-		RateLimitEnabled: getEnv("API_RATE_LIMIT_ENABLED", "false") == "true",
+		RedisAddr:                   getEnv("API_REDIS_ADDR", "localhost:6379"),
+		RedisPassword:               getEnv("API_REDIS_PASSWORD", ""),
+		RateLimitEnabled:            getEnv("API_RATE_LIMIT_ENABLED", "false") == "true",
+		RateLimitRequestsPerSecond:  getFloatEnv("API_RATE_LIMIT_RPS", 10.0),
+		RateLimitBurstSize:          getInt64Env("API_RATE_LIMIT_BURST", 20),
 	}
 
 	if cfg.ReadTimeout, err = getDurationEnv("API_READ_TIMEOUT", 5*time.Second); err != nil {
@@ -87,4 +93,28 @@ func getDurationEnv(key string, fallback time.Duration) (time.Duration, error) {
 	}
 
 	return time.Duration(seconds) * time.Second, nil
+}
+
+func getFloatEnv(key string, fallback float64) float64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fallback
+	}
+	return f
+}
+
+func getInt64Env(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	i, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return i
 }

@@ -49,7 +49,7 @@ func run() error {
 	}
 	defer redisClient.Close()
 
-	handler := apihttp.NewRouter(log, orchestratorClient, redisClient, cfg.RateLimitEnabled)
+	handler := apihttp.NewRouter(log, orchestratorClient, redisClient, cfg)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
