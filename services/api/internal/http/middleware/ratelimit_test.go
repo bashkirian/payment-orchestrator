@@ -116,8 +116,8 @@ func TestRateLimiter_TokensRefill(t *testing.T) {
 	limiter := NewRateLimiter(client, config, log)
 
 	// Exhaust the burst
-	limiter.Allow(ctx, "global")
-	limiter.Allow(ctx, "global")
+	_, _ = limiter.Allow(ctx, "global")
+	_, _ = limiter.Allow(ctx, "global")
 
 	// Should be rejected immediately
 	allowed, _ := limiter.Allow(ctx, "global")
@@ -150,10 +150,10 @@ func TestRateLimiter_Metrics(t *testing.T) {
 	limiter := NewRateLimiter(client, config, log)
 
 	// Make some requests
-	limiter.Allow(ctx, "global")
-	limiter.Allow(ctx, "global")
-	limiter.Allow(ctx, "global")
-	limiter.Allow(ctx, "global") // Rejected (burst = 3)
+	_, _ = limiter.Allow(ctx, "global")
+	_, _ = limiter.Allow(ctx, "global")
+	_, _ = limiter.Allow(ctx, "global")
+	_, _ = limiter.Allow(ctx, "global") // Rejected (burst = 3)
 
 	metrics := limiter.GetMetrics()
 	require.Equal(t, int64(4), metrics.RequestsTotal)

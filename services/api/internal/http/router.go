@@ -17,9 +17,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
+	apiconfig "github.com/bashkirian/fintech-project/services/api/internal/config"
 	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
 	apimiddleware "github.com/bashkirian/fintech-project/services/api/internal/http/middleware"
-	apiconfig "github.com/bashkirian/fintech-project/services/api/internal/config"
 )
 
 // PayoutClient is an interface for the payout gRPC client.

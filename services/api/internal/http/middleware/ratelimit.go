@@ -25,8 +25,8 @@ type RateLimitConfig struct {
 func DefaultRateLimitConfig() RateLimitConfig {
 	return RateLimitConfig{
 		KeyPrefix:         "ratelimit:global",
-		RequestsPerSecond: 10.0,  // 10 requests per second
-		BurstSize:         20,    // Allow burst of 20 requests
+		RequestsPerSecond: 10.0, // 10 requests per second
+		BurstSize:         20,   // Allow burst of 20 requests
 	}
 }
 
@@ -44,9 +44,9 @@ type Metrics struct {
 
 // RateLimiter implements token bucket rate limiting using Redis.
 type RateLimiter struct {
-	client rueidis.Client
-	config RateLimitConfig
-	log    *zap.Logger
+	client  rueidis.Client
+	config  RateLimitConfig
+	log     *zap.Logger
 	metrics Metrics
 }
 
@@ -54,8 +54,8 @@ type RateLimiter struct {
 func NewRateLimiter(client rueidis.Client, config RateLimitConfig, log *zap.Logger) *RateLimiter {
 	return &RateLimiter{
 		client: client,
-		config:  config,
-		log:     log,
+		config: config,
+		log:    log,
 	}
 }
 
