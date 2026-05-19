@@ -7,12 +7,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	apiconfig "github.com/bashkirian/fintech-project/services/api/internal/config"
 )
 
 func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
-	router := NewRouterWithClient(zap.NewNop(), nil, nil, false)
+	cfg := apiconfig.Config{RateLimitEnabled: false}
+	router := NewRouterWithClient(zap.NewNop(), nil, nil, cfg)
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	recorder := httptest.NewRecorder()
 
