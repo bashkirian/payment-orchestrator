@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/bashkirian/fintech-project/libs/errors"
-	"github.com/bashkirian/fintech-project/libs/grpcutil"
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
+	"github.com/bashkirian/fintech-project/libs/grpcutil"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/postgres"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/sqlcgen"
