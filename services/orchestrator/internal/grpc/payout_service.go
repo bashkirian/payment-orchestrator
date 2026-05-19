@@ -2,7 +2,7 @@ package grpc
 
 import (
 	"context"
-	"errors"
+	stderrors "errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -11,6 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/bashkirian/fintech-project/libs/errors"
+	"github.com/bashkirian/fintech-project/libs/grpcutil"
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/postgres"
@@ -19,7 +21,7 @@ import (
 )
 
 // errIdempotencyKeyExists is a sentinel used to signal a key conflict inside RunInTx.
-var errIdempotencyKeyExists = errors.New("idempotency key already exists")
+var errIdempotencyKeyExists = stderrors.New("idempotency key already exists")
 
 // txResult carries data captured inside the transaction closure.
 type txResult struct {
@@ -60,6 +62,8 @@ func (s *PayoutServiceServer) CreatePayout(
 	ctx context.Context,
 	req *orchestratorv1.CreatePayoutRequest,
 ) (*orchestratorv1.CreatePayoutResponse, error) {
+	requestID := grpcutil.GetRequestID(ctx)
+
 	if req.GetIdempotencyKey() == "" {
 		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
 	}
@@ -68,6 +72,7 @@ func (s *PayoutServiceServer) CreatePayout(
 	}
 
 	s.log.Info("CreatePayout",
+		zap.String("request_id", requestID),
 		zap.String("idempotency_key", req.GetIdempotencyKey()),
 		zap.Int64("amount", req.GetAmount()),
 		zap.String("currency", req.GetCurrency()),
@@ -115,17 +120,17 @@ func (s *PayoutServiceServer) CreatePayout(
 			Status:   string(payout.State),
 		}, nil
 
-	case errors.Is(txErr, errIdempotencyKeyExists):
+	case stderrors.Is(txErr, errIdempotencyKeyExists):
 		// Key already exists – check whether this is a replay or a conflict.
 		if result.existingKey.RequestHash != req.GetRequestHash() {
-			return nil, status.Error(codes.AlreadyExists, "idempotency key reused with different request")
+			return nil, status.Error(codes.AlreadyExists, errors.CodeIdempotencyConflict)
 		}
 		// Same hash: return the existing payout.
 		existing, err := s.payoutRepo.GetPayout(ctx, result.existingKey.PayoutID)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "fetch existing payout: %v", err)
 		}
-		s.log.Info("idempotent replay", zap.String("payout_id", existing.ID.String()))
+		s.log.Info("idempotent replay", zap.String("request_id", requestID), zap.String("payout_id", existing.ID.String()))
 		return &orchestratorv1.CreatePayoutResponse{
 			PayoutId: existing.ID.String(),
 			Status:   string(existing.State),
@@ -169,7 +174,7 @@ func (s *PayoutServiceServer) sendPayout(ctx context.Context, payout domain.Payo
 	extID, sendErr := client.SendPayout(ctx, payout)
 	if sendErr != nil {
 		var re *provider.RetryableError
-		if errors.As(sendErr, &re) && !re.Retryable {
+		if stderrors.As(sendErr, &re) && !re.Retryable {
 			s.log.Warn("provider rejected payout (non-retryable)",
 				zap.String("payout_id", payout.ID.String()),
 				zap.Error(sendErr),
@@ -206,22 +211,29 @@ func (s *PayoutServiceServer) GetPayout(
 	ctx context.Context,
 	req *orchestratorv1.GetPayoutRequest,
 ) (*orchestratorv1.GetPayoutResponse, error) {
+	requestID := grpcutil.GetRequestID(ctx)
+
 	if req.GetPayoutId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "payout_id is required")
 	}
 
 	id, err := uuid.Parse(req.GetPayoutId())
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
+		return nil, status.Error(codes.InvalidArgument, errors.CodeInvalidUUID)
 	}
 
 	payout, err := s.payoutRepo.GetPayout(ctx, id)
 	if err != nil {
-		if errors.Is(err, postgres.ErrNotFound) {
-			return nil, status.Errorf(codes.NotFound, "payout %s not found", req.GetPayoutId())
+		if stderrors.Is(err, postgres.ErrNotFound) {
+			return nil, status.Errorf(codes.NotFound, errors.CodeNotFound)
 		}
 		return nil, status.Errorf(codes.Internal, "get payout: %v", err)
 	}
+
+	s.log.Info("GetPayout",
+		zap.String("request_id", requestID),
+		zap.String("payout_id", payout.ID.String()),
+	)
 
 	resp := &orchestratorv1.GetPayoutResponse{
 		PayoutId: payout.ID.String(),
@@ -247,34 +259,36 @@ func (s *PayoutServiceServer) CancelPayout(
 	ctx context.Context,
 	req *orchestratorv1.CancelPayoutRequest,
 ) (*orchestratorv1.CancelPayoutResponse, error) {
+	requestID := grpcutil.GetRequestID(ctx)
+
 	if req.GetPayoutId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "payout_id is required")
 	}
 
 	id, err := uuid.Parse(req.GetPayoutId())
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
+		return nil, status.Error(codes.InvalidArgument, errors.CodeInvalidUUID)
 	}
 
 	_, err = s.payoutRepo.CancelPayout(ctx, id, cancelableStates)
 	if err != nil {
-		if errors.Is(err, postgres.ErrNotFound) {
+		if stderrors.Is(err, postgres.ErrNotFound) {
 			// ErrNotFound here means either payout doesn't exist OR state is not cancelable.
 			// Distinguish by fetching the payout.
 			existing, getErr := s.payoutRepo.GetPayout(ctx, id)
 			if getErr != nil {
-				if errors.Is(getErr, postgres.ErrNotFound) {
-					return nil, status.Errorf(codes.NotFound, "payout %s not found", req.GetPayoutId())
+				if stderrors.Is(getErr, postgres.ErrNotFound) {
+					return nil, status.Error(codes.NotFound, errors.CodeNotFound)
 				}
 				return nil, status.Errorf(codes.Internal, "get payout: %v", getErr)
 			}
-			return nil, status.Errorf(codes.FailedPrecondition,
-				"payout cannot be canceled in state %q", existing.State)
+			return nil, status.Errorf(codes.FailedPrecondition, "%s: payout cannot be canceled in state %q",
+				errors.CodeInvalidState, existing.State)
 		}
 		return nil, status.Errorf(codes.Internal, "cancel payout: %v", err)
 	}
 
-	s.log.Info("CancelPayout", zap.String("payout_id", req.GetPayoutId()))
+	s.log.Info("CancelPayout", zap.String("request_id", requestID), zap.String("payout_id", req.GetPayoutId()))
 	return &orchestratorv1.CancelPayoutResponse{Success: true}, nil
 }
 
@@ -341,7 +355,7 @@ func (s *PayoutServiceServer) findPayoutByExternalIDOrID(ctx context.Context, re
 
 	payout, err = s.payoutRepo.GetPayout(ctx, id)
 	if err != nil {
-		if errors.Is(err, postgres.ErrNotFound) {
+		if stderrors.Is(err, postgres.ErrNotFound) {
 			return domain.Payout{}, status.Errorf(codes.NotFound, "payout %s not found", ref)
 		}
 		return domain.Payout{}, status.Errorf(codes.Internal, "get payout: %v", err)

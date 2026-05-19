@@ -16,6 +16,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/bashkirian/fintech-project/libs/errors"
+	"github.com/bashkirian/fintech-project/libs/grpcutil"
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
 	apiconfig "github.com/bashkirian/fintech-project/services/api/internal/config"
 	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
@@ -79,29 +81,32 @@ func canonicalHash(amount int64, currency, rail string) string {
 
 func createPayoutHandlerWithClient(log *zap.Logger, client PayoutClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		requestID := middleware.GetReqID(r.Context())
+		ctx := grpcutil.SetRequestID(r.Context(), requestID)
+
 		idempotencyKey := r.Header.Get("Idempotency-Key")
 		if idempotencyKey == "" {
-			http.Error(w, `{"error":"Idempotency-Key header is required"}`, http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, errors.CodeInvalidArgument, "Idempotency-Key header is required")
 			return
 		}
 
 		var body createPayoutRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, errors.CodeInvalidArgument, "invalid request body")
 			return
 		}
 		if body.Amount <= 0 {
-			http.Error(w, `{"error":"amount must be positive"}`, http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, errors.CodeInvalidArgument, "amount must be positive")
 			return
 		}
 		if body.Rail == "" {
-			http.Error(w, `{"error":"rail is required"}`, http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, errors.CodeInvalidArgument, "rail is required")
 			return
 		}
 
 		requestHash := canonicalHash(body.Amount, body.Currency, body.Rail)
 
-		resp, err := client.CreatePayout(r.Context(), &orchestratorv1.CreatePayoutRequest{
+		resp, err := client.CreatePayout(ctx, &orchestratorv1.CreatePayoutRequest{
 			IdempotencyKey: idempotencyKey,
 			RequestHash:    requestHash,
 			Amount:         body.Amount,
@@ -110,15 +115,16 @@ func createPayoutHandlerWithClient(log *zap.Logger, client PayoutClient) http.Ha
 		})
 		if err != nil {
 			if st, ok := status.FromError(err); ok && st.Code() == codes.AlreadyExists {
-				http.Error(w, `{"error":"idempotency key reused with different request"}`, http.StatusConflict)
+				writeError(w, http.StatusConflict, errors.CodeIdempotencyConflict, "idempotency key reused with different request")
 				return
 			}
-			log.Error("CreatePayout failed", zap.Error(err))
-			http.Error(w, `{"error":"upstream error"}`, http.StatusBadGateway)
+			log.Error("CreatePayout failed", zap.String("request_id", requestID), zap.Error(err))
+			writeError(w, http.StatusBadGateway, errors.CodeInternal, "upstream error")
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", requestID)
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"payout_id": resp.GetPayoutId(),
@@ -139,32 +145,36 @@ type getPayoutResponse struct {
 
 func getPayoutHandler(log *zap.Logger, client PayoutClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		requestID := middleware.GetReqID(r.Context())
+		ctx := grpcutil.SetRequestID(r.Context(), requestID)
+
 		id := chi.URLParam(r, "id")
 		if id == "" {
-			http.Error(w, `{"error":"payout id is required"}`, http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, errors.CodeInvalidArgument, "payout id is required")
 			return
 		}
 
-		resp, err := client.GetPayout(r.Context(), &orchestratorv1.GetPayoutRequest{
+		resp, err := client.GetPayout(ctx, &orchestratorv1.GetPayoutRequest{
 			PayoutId: id,
 		})
 		if err != nil {
 			if st, ok := status.FromError(err); ok {
 				switch st.Code() {
 				case codes.NotFound:
-					http.Error(w, `{"error":"payout not found"}`, http.StatusNotFound)
+					writeError(w, http.StatusNotFound, errors.CodeNotFound, "payout not found")
 					return
 				case codes.InvalidArgument:
-					http.Error(w, `{"error":"`+st.Message()+`"}`, http.StatusBadRequest)
+					writeError(w, http.StatusBadRequest, errors.CodeInvalidUUID, st.Message())
 					return
 				}
 			}
-			log.Error("GetPayout failed", zap.Error(err))
-			http.Error(w, `{"error":"upstream error"}`, http.StatusBadGateway)
+			log.Error("GetPayout failed", zap.String("request_id", requestID), zap.Error(err))
+			writeError(w, http.StatusBadGateway, errors.CodeInternal, "upstream error")
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", requestID)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(getPayoutResponse{
 			PayoutID:   resp.GetPayoutId(),
@@ -180,38 +190,52 @@ func getPayoutHandler(log *zap.Logger, client PayoutClient) http.HandlerFunc {
 
 func cancelPayoutHandler(log *zap.Logger, client PayoutClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		requestID := middleware.GetReqID(r.Context())
+		ctx := grpcutil.SetRequestID(r.Context(), requestID)
+
 		id := chi.URLParam(r, "id")
 		if id == "" {
-			http.Error(w, `{"error":"payout id is required"}`, http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, errors.CodeInvalidArgument, "payout id is required")
 			return
 		}
 
-		resp, err := client.CancelPayout(r.Context(), &orchestratorv1.CancelPayoutRequest{
+		resp, err := client.CancelPayout(ctx, &orchestratorv1.CancelPayoutRequest{
 			PayoutId: id,
 		})
 		if err != nil {
 			if st, ok := status.FromError(err); ok {
 				switch st.Code() {
 				case codes.NotFound:
-					http.Error(w, `{"error":"payout not found"}`, http.StatusNotFound)
+					writeError(w, http.StatusNotFound, errors.CodeNotFound, "payout not found")
 					return
 				case codes.InvalidArgument:
-					http.Error(w, `{"error":"`+st.Message()+`"}`, http.StatusBadRequest)
+					writeError(w, http.StatusBadRequest, errors.CodeInvalidUUID, st.Message())
 					return
 				case codes.FailedPrecondition:
-					http.Error(w, `{"error":"`+st.Message()+`"}`, http.StatusConflict)
+					writeError(w, http.StatusConflict, errors.CodeInvalidState, st.Message())
 					return
 				}
 			}
-			log.Error("CancelPayout failed", zap.Error(err))
-			http.Error(w, `{"error":"upstream error"}`, http.StatusBadGateway)
+			log.Error("CancelPayout failed", zap.String("request_id", requestID), zap.Error(err))
+			writeError(w, http.StatusBadGateway, errors.CodeInternal, "upstream error")
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", requestID)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]bool{"success": resp.GetSuccess()})
 	}
+}
+
+// writeError writes a structured JSON error response with code and message.
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"code":    code,
+		"message": message,
+	})
 }
 
 func accessLog(log *zap.Logger) func(http.Handler) http.Handler {
