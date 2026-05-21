@@ -16,6 +16,7 @@ type Config struct {
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 	DatabaseURL     string        `yaml:"database_url"`
 	Stripe          StripeConfig  `yaml:"stripe"`
+	Providers       Providers     `yaml:"providers"`
 }
 
 // StripeConfig holds Stripe-specific tunables.
@@ -23,6 +24,19 @@ type StripeConfig struct {
 	APIKey         string `yaml:"api_key"`
 	MaxRetries     int64  `yaml:"max_retries"`
 	TimeoutSeconds int    `yaml:"timeout_seconds"`
+}
+
+// Providers holds provider configuration per payment rail.
+type Providers struct {
+	Card   []ProviderEntry `yaml:"card"`
+	Crypto []ProviderEntry `yaml:"crypto"`
+}
+
+// ProviderEntry defines a single provider's configuration.
+// Order in the YAML list defines priority: first = highest priority.
+type ProviderEntry struct {
+	Name   string `yaml:"name"`   // e.g., "stripe", "mock_card"
+	Active bool   `yaml:"active"` // false = excluded from selection
 }
 
 func Load(path string) (Config, error) {

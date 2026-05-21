@@ -8,3 +8,16 @@ stripe:
   api_key: "sk_test_REPLACE_ME"
   max_retries: 2
   timeout_seconds: 30
+
+# Multi-provider configuration per rail.
+# Order defines priority: first = tried first, second = fallback, etc.
+# Active: false = provider excluded from selection.
+providers:
+  card:
+    - name: stripe
+      active: true
+    - name: mock_card
+      active: true
+  crypto:
+    - name: crypto_sim
+      active: true

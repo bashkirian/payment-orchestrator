@@ -80,12 +80,36 @@ func run(cfgFile string) error {
 	}
 
 	registry := provider.NewRegistry()
-	registry.Register(domain.RailCard, stripeprovider.New(stripeprovider.Config{
-		APIKey:         cfg.Stripe.APIKey,
-		MaxRetries:     cfg.Stripe.MaxRetries,
-		TimeoutSeconds: cfg.Stripe.TimeoutSeconds,
-	}))
-	registry.Register(domain.RailCrypto, &mockprovider.Provider{})
+
+		// Register card providers from config (order defines priority)
+		for _, p := range cfg.Providers.Card {
+			switch domain.Provider(p.Name) {
+			case domain.ProviderStripe:
+				registry.RegisterWithMeta(domain.RailCard, stripeprovider.New(stripeprovider.Config{
+					APIKey:         cfg.Stripe.APIKey,
+					MaxRetries:     cfg.Stripe.MaxRetries,
+					TimeoutSeconds: cfg.Stripe.TimeoutSeconds,
+				}), domain.ProviderMeta{
+					Provider: domain.ProviderStripe,
+					IsActive: p.Active,
+				})
+			case domain.ProviderMockCard:
+				registry.RegisterWithMeta(domain.RailCard, &mockprovider.Provider{}, domain.ProviderMeta{
+					Provider: domain.ProviderMockCard,
+					IsActive: p.Active,
+				})
+			}
+		}
+
+		// Register crypto providers from config
+		for _, p := range cfg.Providers.Crypto {
+			if domain.Provider(p.Name) == domain.ProviderCryptoSim {
+				registry.RegisterWithMeta(domain.RailCrypto, &mockprovider.Provider{}, domain.ProviderMeta{
+					Provider: domain.ProviderCryptoSim,
+					IsActive: p.Active,
+				})
+			}
+		}
 
 	grpcSrv := grpcserver.New(log, pool, registry)
 
