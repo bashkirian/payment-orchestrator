@@ -32,7 +32,14 @@ type Provider string
 const (
 	ProviderStripe    Provider = "stripe"
 	ProviderCryptoSim Provider = "crypto_sim"
+	ProviderMockCard  Provider = "mock_card"
 )
+
+	// ProviderMeta holds metadata for provider selection in routing decisions.
+type ProviderMeta struct {
+	Provider Provider
+	IsActive bool // Can be toggled at runtime to exclude from selection
+}
 
 type Payout struct {
 	ID          uuid.UUID

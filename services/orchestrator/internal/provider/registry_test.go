@@ -26,16 +26,85 @@ func TestRegistry_GetUnregisteredRail(t *testing.T) {
 	reg := provider.NewRegistry()
 
 	_, err := reg.Get(domain.RailCrypto)
-	assert.ErrorContains(t, err, "no client registered for rail")
+	assert.ErrorContains(t, err, "no active client registered for rail")
 }
 
-func TestRegistry_DuplicateRegisterPanics(t *testing.T) {
+func TestRegistry_GetProviders_ReturnsActiveOnly(t *testing.T) {
 	reg := provider.NewRegistry()
-	reg.Register(domain.RailCard, &mock.Provider{})
-
-	assert.Panics(t, func() {
-		reg.Register(domain.RailCard, &mock.Provider{})
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderStripe,
+		IsActive: true,
 	})
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderMockCard,
+		IsActive: false,
+	})
+
+	providers := reg.GetProviders(domain.RailCard)
+	require.Len(t, providers, 1)
+	assert.Equal(t, domain.ProviderStripe, providers[0].Meta.Provider)
+}
+
+func TestRegistry_GetProviders_OrderedByRegistration(t *testing.T) {
+	reg := provider.NewRegistry()
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderStripe,
+		IsActive: true,
+	})
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.Provider("adyen"),
+		IsActive: true,
+	})
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderMockCard,
+		IsActive: true,
+	})
+
+	providers := reg.GetProviders(domain.RailCard)
+	require.Len(t, providers, 3)
+
+	// Order should match registration order
+	assert.Equal(t, domain.ProviderStripe, providers[0].Meta.Provider)
+	assert.Equal(t, domain.Provider("adyen"), providers[1].Meta.Provider)
+	assert.Equal(t, domain.ProviderMockCard, providers[2].Meta.Provider)
+}
+
+func TestRegistry_SetActive(t *testing.T) {
+	reg := provider.NewRegistry()
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderStripe,
+		IsActive: true,
+	})
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderMockCard,
+		IsActive: true,
+	})
+
+	// Disable Stripe
+	ok := reg.SetActive(domain.RailCard, domain.ProviderStripe, false)
+	assert.True(t, ok)
+
+	providers := reg.GetProviders(domain.RailCard)
+	require.Len(t, providers, 1)
+	assert.Equal(t, domain.ProviderMockCard, providers[0].Meta.Provider)
+
+	// Enable Stripe back
+	ok = reg.SetActive(domain.RailCard, domain.ProviderStripe, true)
+	assert.True(t, ok)
+
+	providers = reg.GetProviders(domain.RailCard)
+	require.Len(t, providers, 2)
+}
+
+func TestRegistry_SetActive_UnknownProvider(t *testing.T) {
+	reg := provider.NewRegistry()
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderStripe,
+		IsActive: true,
+	})
+
+	ok := reg.SetActive(domain.RailCard, domain.Provider("unknown"), false)
+	assert.False(t, ok)
 }
 
 func TestMockProvider_SendPayout_Success(t *testing.T) {
@@ -70,8 +139,14 @@ func TestMockProvider_CancelPayout_Unsupported(t *testing.T) {
 
 func TestRegistry_ProviderRoundtrip(t *testing.T) {
 	reg := provider.NewRegistry()
-	reg.Register(domain.RailCard, &mock.Provider{})
-	reg.Register(domain.RailCrypto, &mock.Provider{CancelErr: provider.ErrCancelNotSupported})
+	reg.RegisterWithMeta(domain.RailCard, &mock.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderStripe,
+		IsActive: true,
+	})
+	reg.RegisterWithMeta(domain.RailCrypto, &mock.Provider{CancelErr: provider.ErrCancelNotSupported}, domain.ProviderMeta{
+		Provider: domain.ProviderCryptoSim,
+		IsActive: true,
+	})
 
 	cardClient, err := reg.Get(domain.RailCard)
 	require.NoError(t, err)
