@@ -111,6 +111,15 @@ func run(cfgFile string) error {
 		}
 	}
 
+	// Initialize success tracker and router
+	successTracker := provider.NewSuccessTracker()
+	minSamples := cfg.Routing.MinSamples
+	if minSamples == 0 {
+		minSamples = 10 // default
+	}
+	router := provider.NewRouter(registry, successTracker, minSamples)
+	_ = router // Will be used in Issue #49 for orchestrator with fallback
+
 	grpcSrv := grpcserver.New(log, pool, registry)
 
 	grpcLis, err := net.Listen("tcp", cfg.GRPCAddr)

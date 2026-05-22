@@ -17,6 +17,7 @@ type Config struct {
 	DatabaseURL     string        `yaml:"database_url"`
 	Stripe          StripeConfig  `yaml:"stripe"`
 	Providers       Providers     `yaml:"providers"`
+	Routing         RoutingConfig `yaml:"routing"`
 }
 
 // StripeConfig holds Stripe-specific tunables.
@@ -37,6 +38,11 @@ type Providers struct {
 type ProviderEntry struct {
 	Name   string `yaml:"name"`   // e.g., "stripe", "mock_card"
 	Active bool   `yaml:"active"` // false = excluded from selection
+}
+
+// RoutingConfig holds routing algorithm configuration.
+type RoutingConfig struct {
+	MinSamples int `yaml:"min_samples"` // minimum transactions before using success rate
 }
 
 func Load(path string) (Config, error) {

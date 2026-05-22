@@ -21,3 +21,7 @@ providers:
   crypto:
     - name: crypto_sim
       active: true
+
+# Routing algorithm configuration.
+routing:
+  min_samples: 10  # minimum transactions before using success rate data
