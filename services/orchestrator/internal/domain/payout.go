@@ -35,7 +35,7 @@ const (
 	ProviderMockCard  Provider = "mock_card"
 )
 
-	// ProviderMeta holds metadata for provider selection in routing decisions.
+// ProviderMeta holds metadata for provider selection in routing decisions.
 type ProviderMeta struct {
 	Provider Provider
 	IsActive bool // Can be toggled at runtime to exclude from selection
