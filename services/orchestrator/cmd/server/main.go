@@ -92,11 +92,13 @@ func run(cfgFile string) error {
 			}), domain.ProviderMeta{
 				Provider: domain.ProviderStripe,
 				IsActive: p.Active,
+				Weight:   p.Weight, // 0 means unset, will be calculated in router
 			})
 		case domain.ProviderMockCard:
 			registry.RegisterWithMeta(domain.RailCard, &mockprovider.Provider{}, domain.ProviderMeta{
 				Provider: domain.ProviderMockCard,
 				IsActive: p.Active,
+				Weight:   p.Weight, // 0 means unset, will be calculated in router
 			})
 		}
 	}
@@ -107,6 +109,7 @@ func run(cfgFile string) error {
 			registry.RegisterWithMeta(domain.RailCrypto, &mockprovider.Provider{}, domain.ProviderMeta{
 				Provider: domain.ProviderCryptoSim,
 				IsActive: p.Active,
+				Weight:   p.Weight, // 0 means unset, will be calculated in router
 			})
 		}
 	}

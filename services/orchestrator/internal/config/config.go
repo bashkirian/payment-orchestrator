@@ -35,9 +35,11 @@ type Providers struct {
 
 // ProviderEntry defines a single provider's configuration.
 // Order in the YAML list defines priority: first = highest priority.
+// Weight is used for volume split routing (0-100, default 50).
 type ProviderEntry struct {
 	Name   string `yaml:"name"`   // e.g., "stripe", "mock_card"
 	Active bool   `yaml:"active"` // false = excluded from selection
+	Weight int    `yaml:"weight"` // 0-100 for volume split, default 50 if not set
 }
 
 // RoutingConfig holds routing algorithm configuration.

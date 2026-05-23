@@ -12,15 +12,19 @@ stripe:
 # Multi-provider configuration per rail.
 # Order defines priority: first = tried first, second = fallback, etc.
 # Active: false = provider excluded from selection.
+# Weight: 0-100 for volume split routing (default 50).
 providers:
   card:
     - name: stripe
       active: true
+      weight: 70
     - name: mock_card
       active: true
+      weight: 30
   crypto:
     - name: crypto_sim
       active: true
+      weight: 100
 
 # Routing algorithm configuration.
 routing:

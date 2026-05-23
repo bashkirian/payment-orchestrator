@@ -10,13 +10,14 @@ import (
 type RoutingAlgorithm string
 
 const (
-	// RoutingPriority returns the first active provider (order in config).
+	// RoutingPriority returns providers in config order (first = highest priority).
 	RoutingPriority RoutingAlgorithm = "priority"
-	// RoutingWeighted randomly selects a provider based on weight.
-	// Note: weights are equal for now; can be extended to use config weights.
+	// RoutingWeighted randomly selects a provider based on weight,
+	// then returns all providers with selected first (for fallback).
 	RoutingWeighted RoutingAlgorithm = "weighted"
 	// RoutingSuccessBased picks the provider with the highest success rate.
 	// Requires minimum samples before using real data.
+	// Returns all providers sorted by success rate (best first).
 	RoutingSuccessBased RoutingAlgorithm = "success_based"
 )
 
@@ -36,74 +37,181 @@ func NewRouter(registry *Registry, tracker *SuccessTracker, minSamples int) *Rou
 	}
 }
 
-// SelectProvider selects a provider based on the given algorithm.
-// Returns the provider client, provider identifier, and any error.
-func (r *Router) SelectProvider(rail domain.Rail, algo RoutingAlgorithm) (Client, domain.Provider, error) {
+// SelectProviders returns an ordered list of providers based on the routing algorithm.
+// The first provider is tried first, subsequent providers are fallback options.
+func (r *Router) SelectProviders(rail domain.Rail, algo RoutingAlgorithm) ([]ProviderWithMeta, error) {
 	providers := r.registry.GetProviders(rail)
 	if len(providers) == 0 {
-		return nil, "", ErrNoProviders
+		return nil, ErrNoProviders
 	}
 
 	switch algo {
-	case RoutingPriority:
-		return r.selectByPriority(providers)
 	case RoutingWeighted:
-		return r.selectByWeight(providers)
+		return r.selectByWeight(providers), nil
 	case RoutingSuccessBased:
-		return r.selectBySuccessRate(rail, providers)
+		return r.selectBySuccessRate(rail, providers), nil
 	default:
-		// Default to priority
-		return r.selectByPriority(providers)
+		// RoutingPriority - return as-is (config order)
+		return providers, nil
 	}
 }
 
-// selectByPriority returns the first provider in the list.
-func (r *Router) selectByPriority(providers []ProviderWithMeta) (Client, domain.Provider, error) {
-	return providers[0].Client, providers[0].Meta.Provider, nil
+// selectByWeight randomly selects a provider based on weight, puts it first.
+// Providers without weight share the remaining percentage equally.
+func (r *Router) selectByWeight(providers []ProviderWithMeta) []ProviderWithMeta {
+	if len(providers) == 0 {
+		return providers
+	}
+
+	// Calculate effective weights
+	weights := calculateEffectiveWeights(providers)
+
+	// Weighted random selection
+	totalWeight := 0
+	for _, w := range weights {
+		totalWeight += w
+	}
+
+	idx := weightedRandomIndex(weights, totalWeight)
+
+	// Move selected provider to front
+	result := make([]ProviderWithMeta, len(providers))
+	result[0] = providers[idx]
+	j := 1
+	for i, p := range providers {
+		if i != idx {
+			result[j] = p
+			j++
+		}
+	}
+	return result
 }
 
-// selectByWeight randomly selects a provider with equal weights.
-func (r *Router) selectByWeight(providers []ProviderWithMeta) (Client, domain.Provider, error) {
-	idx := rand.Intn(len(providers))
-	return providers[idx].Client, providers[idx].Meta.Provider, nil
-}
+// calculateEffectiveWeights computes weights for all providers.
+// If some providers have explicit weights, those without weights share the remainder.
+// If no provider has explicit weights, all get equal weight.
+func calculateEffectiveWeights(providers []ProviderWithMeta) []int {
+	weights := make([]int, len(providers))
+	totalExplicit := 0
+	explicitCount := 0
 
-// selectBySuccessRate picks the provider with the highest success rate.
-// Falls back to priority order for providers with insufficient samples.
-func (r *Router) selectBySuccessRate(rail domain.Rail, providers []ProviderWithMeta) (Client, domain.Provider, error) {
-	var bestProvider *ProviderWithMeta
-	var bestRate float64 = -1
+	for i, p := range providers {
+		if p.Meta.Weight > 0 {
+			weights[i] = p.Meta.Weight
+			totalExplicit += p.Meta.Weight
+			explicitCount++
+		}
+	}
 
-	for i := range providers {
-		p := &providers[i]
-		rate := r.successTracker.GetSuccessRate(string(rail), string(p.Meta.Provider))
+	// If no explicit weights, use equal distribution
+	if explicitCount == 0 {
+		for i := range weights {
+			weights[i] = 100 / len(providers)
+		}
+		// Give remainder to first provider
+		weights[0] += 100 % len(providers)
+		return weights
+	}
 
-		// Check if we have enough samples for this provider
-		success, fail, _ := r.successTracker.GetStats(string(rail), string(p.Meta.Provider))
-		total := success + fail
+	// If all have explicit weights, use as-is
+	if explicitCount == len(providers) {
+		return weights
+	}
 
-		// If provider has insufficient samples, use priority ordering for it
-		if total < int64(r.minSamples) {
-			// If no provider has enough samples yet, return first (priority)
-			if bestRate < 0 {
-				bestProvider = p
-				bestRate = rate
+	// Distribute remainder among providers without explicit weight
+	remainder := 100 - totalExplicit
+	if remainder <= 0 {
+		// Already at or over 100%, give minimum weight to unset providers
+		for i, p := range providers {
+			if p.Meta.Weight == 0 {
+				weights[i] = 1
 			}
-			continue
 		}
+		return weights
+	}
 
-		// Provider has enough samples - compare success rates
-		if rate > bestRate {
-			bestRate = rate
-			bestProvider = p
+	unsetCount := len(providers) - explicitCount
+	unsetWeight := remainder / unsetCount
+	for i, p := range providers {
+		if p.Meta.Weight == 0 {
+			weights[i] = unsetWeight
+		}
+	}
+	// Give remainder to first unset provider
+	remainderRemainder := remainder % unsetCount
+	if remainderRemainder > 0 {
+		for i, p := range providers {
+			if p.Meta.Weight == 0 {
+				weights[i] += remainderRemainder
+				break
+			}
 		}
 	}
 
-	if bestProvider == nil {
-		bestProvider = &providers[0]
+	return weights
+}
+
+// weightedRandomIndex selects an index based on weights.
+func weightedRandomIndex(weights []int, totalWeight int) int {
+	if totalWeight <= 0 {
+		return rand.Intn(len(weights))
 	}
 
-	return bestProvider.Client, bestProvider.Meta.Provider, nil
+	r := rand.Intn(totalWeight)
+	sum := 0
+	for i, w := range weights {
+		sum += w
+		if r < sum {
+			return i
+		}
+	}
+	return len(weights) - 1
+}
+
+// selectBySuccessRate returns providers sorted by success rate (best first).
+// Providers without enough samples keep their original order.
+func (r *Router) selectBySuccessRate(rail domain.Rail, providers []ProviderWithMeta) []ProviderWithMeta {
+	if len(providers) == 0 {
+		return providers
+	}
+
+	// Create a copy to sort
+	result := make([]ProviderWithMeta, len(providers))
+	copy(result, providers)
+
+	// Sort by success rate (descending), with providers having enough samples first
+	// Use stable sort to preserve order for providers without enough samples
+	for i := 0; i < len(result)-1; i++ {
+		for j := i + 1; j < len(result); j++ {
+			// Check if both have enough samples
+			succI, failI, okI := r.successTracker.GetStats(string(rail), string(result[i].Meta.Provider))
+			succJ, failJ, okJ := r.successTracker.GetStats(string(rail), string(result[j].Meta.Provider))
+
+			hasEnoughI := okI && (succI+failI) >= int64(r.minSamples)
+			hasEnoughJ := okJ && (succJ+failJ) >= int64(r.minSamples)
+
+			// Provider with enough samples comes before one without
+			if hasEnoughI && !hasEnoughJ {
+				continue // i is already before j, correct order
+			}
+			if !hasEnoughI && hasEnoughJ {
+				result[i], result[j] = result[j], result[i]
+				continue
+			}
+
+			// Both have enough samples - compare rates (higher rate first)
+			if hasEnoughI && hasEnoughJ {
+				rateI := r.successTracker.GetSuccessRate(string(rail), string(result[i].Meta.Provider))
+				rateJ := r.successTracker.GetSuccessRate(string(rail), string(result[j].Meta.Provider))
+				if rateJ > rateI {
+					result[i], result[j] = result[j], result[i]
+				}
+			}
+			// If both don't have enough samples, keep original order (do nothing)
+		}
+	}
+
+	return result
 }
 
 // ErrNoProviders is returned when no providers are available for a rail.
