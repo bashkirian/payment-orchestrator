@@ -23,7 +23,7 @@ type Payout struct {
 	AmountCents int64     `json:"amount_cents"`
 	Currency    string    `json:"currency"`
 	Rail        string    `json:"rail"`
-	Provider    string    `json:"provider"`
+	Provider    *string   `json:"provider"`
 	ExternalID  *string   `json:"external_id"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

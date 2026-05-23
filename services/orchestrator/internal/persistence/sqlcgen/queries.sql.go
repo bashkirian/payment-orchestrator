@@ -45,7 +45,7 @@ func (q *Queries) CancelPayoutIfCancelable(ctx context.Context, arg CancelPayout
 
 const createPayout = `-- name: CreatePayout :one
 INSERT INTO payouts (state, amount_cents, currency, rail, provider, external_id)
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES ($1, $2, $3, $4, $5::text, $6)
 RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at
 `
 
@@ -54,7 +54,7 @@ type CreatePayoutParams struct {
 	AmountCents int64   `json:"amount_cents"`
 	Currency    string  `json:"currency"`
 	Rail        string  `json:"rail"`
-	Provider    string  `json:"provider"`
+	Provider    *string `json:"provider"`
 	ExternalID  *string `json:"external_id"`
 }
 
@@ -167,19 +167,25 @@ func (q *Queries) TryInsertIdempotencyKey(ctx context.Context, arg TryInsertIdem
 
 const updatePayoutState = `-- name: UpdatePayoutState :one
 UPDATE payouts
-SET state = $1, external_id = $2, updated_at = now()
-WHERE id = $3
+SET state = $1, external_id = $2, provider = $3::text, updated_at = now()
+WHERE id = $4
 RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at
 `
 
 type UpdatePayoutStateParams struct {
 	State      string    `json:"state"`
 	ExternalID *string   `json:"external_id"`
+	Provider   *string   `json:"provider"`
 	ID         uuid.UUID `json:"id"`
 }
 
 func (q *Queries) UpdatePayoutState(ctx context.Context, arg UpdatePayoutStateParams) (Payout, error) {
-	row := q.db.QueryRow(ctx, updatePayoutState, arg.State, arg.ExternalID, arg.ID)
+	row := q.db.QueryRow(ctx, updatePayoutState,
+		arg.State,
+		arg.ExternalID,
+		arg.Provider,
+		arg.ID,
+	)
 	var i Payout
 	err := row.Scan(
 		&i.ID,

@@ -1,6 +1,6 @@
 -- name: CreatePayout :one
 INSERT INTO payouts (state, amount_cents, currency, rail, provider, external_id)
-VALUES (@state, @amount_cents, @currency, @rail, @provider, @external_id)
+VALUES (@state, @amount_cents, @currency, @rail, sqlc.narg('provider')::text, @external_id)
 RETURNING *;
 
 -- name: GetPayout :one
@@ -8,7 +8,7 @@ SELECT * FROM payouts WHERE id = @id;
 
 -- name: UpdatePayoutState :one
 UPDATE payouts
-SET state = @state, external_id = @external_id, updated_at = now()
+SET state = @state, external_id = @external_id, provider = sqlc.narg('provider')::text, updated_at = now()
 WHERE id = @id
 RETURNING *;
 

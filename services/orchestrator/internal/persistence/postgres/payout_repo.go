@@ -21,12 +21,17 @@ func NewPayoutRepo(q sqlcgen.Querier) *PayoutRepo {
 }
 
 func (r *PayoutRepo) CreatePayout(ctx context.Context, params domain.CreatePayoutParams) (domain.Payout, error) {
+	var provider *string
+	if params.Provider != "" {
+		p := string(params.Provider)
+		provider = &p
+	}
 	row, err := r.q.CreatePayout(ctx, sqlcgen.CreatePayoutParams{
 		State:       string(params.State),
 		AmountCents: params.AmountCents,
 		Currency:    params.Currency,
 		Rail:        string(params.Rail),
-		Provider:    string(params.Provider),
+		Provider:    provider,
 		ExternalID:  params.ExternalID,
 	})
 	if err != nil {
@@ -47,10 +52,16 @@ func (r *PayoutRepo) GetPayout(ctx context.Context, id uuid.UUID) (domain.Payout
 }
 
 func (r *PayoutRepo) UpdatePayoutState(ctx context.Context, id uuid.UUID, params domain.UpdatePayoutParams) (domain.Payout, error) {
+	var provider *string
+	if params.Provider != "" {
+		p := string(params.Provider)
+		provider = &p
+	}
 	row, err := r.q.UpdatePayoutState(ctx, sqlcgen.UpdatePayoutStateParams{
 		ID:         id,
 		State:      string(params.State),
 		ExternalID: params.ExternalID,
+		Provider:   provider,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -132,13 +143,17 @@ func (r *IdempotencyRepo) GetIdempotencyKey(ctx context.Context, key string) (do
 }
 
 func toDomainPayout(p sqlcgen.Payout) domain.Payout {
+	var provider domain.Provider
+	if p.Provider != nil {
+		provider = domain.Provider(*p.Provider)
+	}
 	return domain.Payout{
 		ID:          p.ID,
 		State:       domain.PayoutState(p.State),
 		AmountCents: p.AmountCents,
 		Currency:    p.Currency,
 		Rail:        domain.Rail(p.Rail),
-		Provider:    domain.Provider(p.Provider),
+		Provider:    provider,
 		ExternalID:  p.ExternalID,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,

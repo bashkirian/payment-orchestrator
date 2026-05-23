@@ -20,10 +20,10 @@ type Server struct {
 	log *zap.Logger
 }
 
-func New(log *zap.Logger, pool *pgxpool.Pool, registry *provider.Registry) *Server {
+func New(log *zap.Logger, pool *pgxpool.Pool, orchestrator *provider.Orchestrator, routingAlgo provider.RoutingAlgorithm) *Server {
 	srv := grpc.NewServer()
 
-	orchestratorv1.RegisterPayoutServiceServer(srv, newPayoutServiceServer(log, pool, registry))
+	orchestratorv1.RegisterPayoutServiceServer(srv, newPayoutServiceServer(log, pool, orchestrator, routingAlgo))
 
 	healthSvc := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(srv, healthSvc)

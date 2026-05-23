@@ -72,6 +72,7 @@ type CreatePayoutParams struct {
 type UpdatePayoutParams struct {
 	State      PayoutState
 	ExternalID *string
+	Provider   Provider // Set after routing decision
 }
 
 type PayoutRepository interface {
