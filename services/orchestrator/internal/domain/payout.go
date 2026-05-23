@@ -39,6 +39,7 @@ const (
 type ProviderMeta struct {
 	Provider Provider
 	IsActive bool // Can be toggled at runtime to exclude from selection
+	Weight   int  // 0-100 for volume split routing, default 50
 }
 
 type Payout struct {

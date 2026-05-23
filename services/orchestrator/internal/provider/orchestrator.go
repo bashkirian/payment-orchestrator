@@ -53,8 +53,8 @@ func (o *Orchestrator) SendPayoutWithFallback(
 		TriedProviders: make([]domain.Provider, 0),
 	}
 
-	providers := o.registry.GetProviders(payout.Rail)
-	if len(providers) == 0 {
+	providers, err := o.router.SelectProviders(payout.Rail, o.routingAlgo)
+	if err != nil {
 		o.log.Error("no providers available for rail",
 			zap.String("rail", string(payout.Rail)),
 			zap.String("payout_id", payout.ID.String()),
