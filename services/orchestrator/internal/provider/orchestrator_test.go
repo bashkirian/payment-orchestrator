@@ -25,7 +25,7 @@ func TestOrchestrator_SendPayoutWithFallback_Success(t *testing.T) {
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -33,7 +33,7 @@ func TestOrchestrator_SendPayoutWithFallback_Success(t *testing.T) {
 		AmountCents: 1000,
 	}
 
-	result := orch.SendPayoutWithFallback(context.Background(), payout, provider.RoutingPriority)
+	result := orch.SendPayoutWithFallback(context.Background(), payout)
 
 	assert.True(t, result.Success)
 	assert.NotEmpty(t, result.ExternalID)
@@ -66,7 +66,7 @@ func TestOrchestrator_SendPayoutWithFallback_FallbackOnFailure(t *testing.T) {
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -74,7 +74,7 @@ func TestOrchestrator_SendPayoutWithFallback_FallbackOnFailure(t *testing.T) {
 		AmountCents: 1000,
 	}
 
-	result := orch.SendPayoutWithFallback(context.Background(), payout, provider.RoutingPriority)
+	result := orch.SendPayoutWithFallback(context.Background(), payout)
 
 	assert.True(t, result.Success)
 	assert.Equal(t, domain.ProviderMockCard, result.UsedProvider)
@@ -109,7 +109,7 @@ func TestOrchestrator_SendPayoutWithFallback_TerminalErrorStopsFallback(t *testi
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -117,7 +117,7 @@ func TestOrchestrator_SendPayoutWithFallback_TerminalErrorStopsFallback(t *testi
 		AmountCents: 1000,
 	}
 
-	result := orch.SendPayoutWithFallback(context.Background(), payout, provider.RoutingPriority)
+	result := orch.SendPayoutWithFallback(context.Background(), payout)
 
 	assert.False(t, result.Success)
 	assert.Len(t, result.TriedProviders, 1) // Only tried stripe
@@ -144,7 +144,7 @@ func TestOrchestrator_SendPayoutWithFallback_AllProvidersFail(t *testing.T) {
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -152,7 +152,7 @@ func TestOrchestrator_SendPayoutWithFallback_AllProvidersFail(t *testing.T) {
 		AmountCents: 1000,
 	}
 
-	result := orch.SendPayoutWithFallback(context.Background(), payout, provider.RoutingPriority)
+	result := orch.SendPayoutWithFallback(context.Background(), payout)
 
 	assert.False(t, result.Success)
 	assert.Empty(t, result.ExternalID)
@@ -173,7 +173,7 @@ func TestOrchestrator_SendPayoutWithFallback_NoProviders(t *testing.T) {
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -181,7 +181,7 @@ func TestOrchestrator_SendPayoutWithFallback_NoProviders(t *testing.T) {
 		AmountCents: 1000,
 	}
 
-	result := orch.SendPayoutWithFallback(context.Background(), payout, provider.RoutingPriority)
+	result := orch.SendPayoutWithFallback(context.Background(), payout)
 
 	assert.False(t, result.Success)
 	assert.Empty(t, result.TriedProviders)
@@ -198,7 +198,7 @@ func TestOrchestrator_CancelPayout(t *testing.T) {
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
 	externalID := "pi_test123"
 	payout := domain.Payout{
@@ -218,7 +218,7 @@ func TestOrchestrator_CancelPayout_ProviderNotFound(t *testing.T) {
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -250,7 +250,7 @@ func TestOrchestrator_SendPayoutWithFallback_InactiveProviderSkipped(t *testing.
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -258,7 +258,7 @@ func TestOrchestrator_SendPayoutWithFallback_InactiveProviderSkipped(t *testing.
 		AmountCents: 1000,
 	}
 
-	result := orch.SendPayoutWithFallback(context.Background(), payout, provider.RoutingPriority)
+	result := orch.SendPayoutWithFallback(context.Background(), payout)
 
 	assert.True(t, result.Success)
 	assert.Equal(t, domain.ProviderMockCard, result.UsedProvider)

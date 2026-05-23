@@ -14,20 +14,23 @@ type Orchestrator struct {
 	router         *Router
 	successTracker *SuccessTracker
 	log            *zap.Logger
+	routingAlgo    RoutingAlgorithm
 }
 
-// NewOrchestrator creates a new Orchestrator.
+// NewOrchestrator creates a new Orchestrator with the given routing algorithm.
 func NewOrchestrator(
 	registry *Registry,
 	router *Router,
 	successTracker *SuccessTracker,
 	log *zap.Logger,
+	routingAlgo RoutingAlgorithm,
 ) *Orchestrator {
 	return &Orchestrator{
 		registry:       registry,
 		router:         router,
 		successTracker: successTracker,
 		log:            log,
+		routingAlgo:    routingAlgo,
 	}
 }
 
@@ -39,13 +42,12 @@ type SendPayoutResult struct {
 	Success        bool
 }
 
-// SendPayoutWithFallback attempts to send a payout using the given routing algorithm.
+// SendPayoutWithFallback attempts to send a payout using the configured routing algorithm.
 // On retryable failure, it falls back to the next provider in order.
 // Returns the result including which provider was used and which providers were tried.
 func (o *Orchestrator) SendPayoutWithFallback(
 	ctx context.Context,
 	payout domain.Payout,
-	algo RoutingAlgorithm,
 ) SendPayoutResult {
 	result := SendPayoutResult{
 		TriedProviders: make([]domain.Provider, 0),

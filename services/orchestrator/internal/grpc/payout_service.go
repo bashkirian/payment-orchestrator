@@ -37,21 +37,18 @@ type PayoutServiceServer struct {
 	pool         *pgxpool.Pool
 	payoutRepo   domain.PayoutRepository
 	orchestrator *provider.Orchestrator
-	routingAlgo  provider.RoutingAlgorithm
 }
 
 func newPayoutServiceServer(
 	log *zap.Logger,
 	pool *pgxpool.Pool,
 	orchestrator *provider.Orchestrator,
-	routingAlgo provider.RoutingAlgorithm,
 ) *PayoutServiceServer {
 	return &PayoutServiceServer{
 		log:          log,
 		pool:         pool,
 		payoutRepo:   postgres.NewPayoutRepo(sqlcgen.New(pool)),
 		orchestrator: orchestrator,
-		routingAlgo:  routingAlgo,
 	}
 }
 
@@ -152,7 +149,7 @@ func (s *PayoutServiceServer) sendPayoutWithOrchestrator(ctx context.Context, pa
 		return updated
 	}
 
-	result := s.orchestrator.SendPayoutWithFallback(ctx, payout, s.routingAlgo)
+	result := s.orchestrator.SendPayoutWithFallback(ctx, payout)
 
 	if result.Success {
 		updated, err := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{

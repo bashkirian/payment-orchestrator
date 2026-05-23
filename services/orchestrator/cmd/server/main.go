@@ -118,12 +118,10 @@ func run(cfgFile string) error {
 		minSamples = 10 // default
 	}
 	router := provider.NewRouter(registry, successTracker, minSamples)
-	orchestrator := provider.NewOrchestrator(registry, router, successTracker, log)
-
-	// Default routing algorithm
 	routingAlgo := provider.RoutingPriority
+	orchestrator := provider.NewOrchestrator(registry, router, successTracker, log, routingAlgo)
 
-	grpcSrv := grpcserver.New(log, pool, orchestrator, routingAlgo)
+	grpcSrv := grpcserver.New(log, pool, orchestrator)
 
 	grpcLis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

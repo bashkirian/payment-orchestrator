@@ -116,7 +116,6 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 type payoutTestServer struct {
 	pool         *pgxpool.Pool
 	orchestrator *provider.Orchestrator
-	routingAlgo  provider.RoutingAlgorithm
 }
 
 func newTestServer(t *testing.T, pool *pgxpool.Pool) *payoutTestServer {
@@ -133,11 +132,11 @@ func newTestServer(t *testing.T, pool *pgxpool.Pool) *payoutTestServer {
 	tracker := provider.NewSuccessTracker()
 	router := provider.NewRouter(reg, tracker, 10)
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log)
+	routingAlgo := provider.RoutingPriority
+	orch := provider.NewOrchestrator(reg, router, tracker, log, routingAlgo)
 	return &payoutTestServer{
 		pool:         pool,
 		orchestrator: orch,
-		routingAlgo:  provider.RoutingPriority,
 	}
 }
 
@@ -195,7 +194,7 @@ func (s *payoutTestServer) createPayout(
 	case txErr == nil:
 		payout := result.newPayout
 		// Use orchestrator to send payout
-		sendResult := s.orchestrator.SendPayoutWithFallback(ctx, payout, s.routingAlgo)
+		sendResult := s.orchestrator.SendPayoutWithFallback(ctx, payout)
 		repo := postgres.NewPayoutRepo(sqlcgen.New(s.pool))
 		if sendResult.Success {
 			updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
