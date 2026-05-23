@@ -33,28 +33,25 @@ type txResult struct {
 // PayoutServiceServer implements orchestratorv1.PayoutServiceServer.
 type PayoutServiceServer struct {
 	orchestratorv1.UnimplementedPayoutServiceServer
-	log        *zap.Logger
-	pool       *pgxpool.Pool
-	payoutRepo domain.PayoutRepository
-	registry   *provider.Registry
+	log          *zap.Logger
+	pool         *pgxpool.Pool
+	payoutRepo   domain.PayoutRepository
+	orchestrator *provider.Orchestrator
+	routingAlgo  provider.RoutingAlgorithm
 }
 
-func newPayoutServiceServer(log *zap.Logger, pool *pgxpool.Pool, registry *provider.Registry) *PayoutServiceServer {
+func newPayoutServiceServer(
+	log *zap.Logger,
+	pool *pgxpool.Pool,
+	orchestrator *provider.Orchestrator,
+	routingAlgo provider.RoutingAlgorithm,
+) *PayoutServiceServer {
 	return &PayoutServiceServer{
-		log:        log,
-		pool:       pool,
-		payoutRepo: postgres.NewPayoutRepo(sqlcgen.New(pool)),
-		registry:   registry,
-	}
-}
-
-// railToProvider maps a payment rail to its default provider.
-func railToProvider(rail domain.Rail) domain.Provider {
-	switch rail {
-	case domain.RailCrypto:
-		return domain.ProviderCryptoSim
-	default:
-		return domain.ProviderStripe
+		log:          log,
+		pool:         pool,
+		payoutRepo:   postgres.NewPayoutRepo(sqlcgen.New(pool)),
+		orchestrator: orchestrator,
+		routingAlgo:  routingAlgo,
 	}
 }
 
@@ -84,12 +81,13 @@ func (s *PayoutServiceServer) CreatePayout(
 	txErr := postgres.RunInTx(ctx, s.pool, func(ctx context.Context, q sqlcgen.Querier) error {
 		rail := domain.Rail(req.GetRail())
 
+		// Create payout with placeholder provider (will be updated after routing)
 		payout, err := postgres.NewPayoutRepo(q).CreatePayout(ctx, domain.CreatePayoutParams{
 			State:       domain.PayoutStateCreated,
 			AmountCents: req.GetAmount(),
 			Currency:    req.GetCurrency(),
 			Rail:        rail,
-			Provider:    railToProvider(rail),
+			Provider:    "", // Will be set after routing decision
 		})
 		if err != nil {
 			return err
@@ -112,9 +110,9 @@ func (s *PayoutServiceServer) CreatePayout(
 
 	switch {
 	case txErr == nil:
-		// Happy path: new payout created — attempt to send via provider.
+		// Happy path: new payout created — attempt to send via orchestrator.
 		payout := result.newPayout
-		payout = s.sendPayout(ctx, payout)
+		payout = s.sendPayoutWithOrchestrator(ctx, payout)
 		return &orchestratorv1.CreatePayoutResponse{
 			PayoutId: payout.ID.String(),
 			Status:   string(payout.State),
@@ -141,70 +139,67 @@ func (s *PayoutServiceServer) CreatePayout(
 	}
 }
 
-// sendPayout looks up the provider for the payout's rail, calls SendPayout,
-// and persists the resulting state (sent + external_id, or failed).
-// RetryableError is used to distinguish terminal vs transient provider failures
-// for logging purposes; both result in a failed state persisted to the DB.
-func (s *PayoutServiceServer) sendPayout(ctx context.Context, payout domain.Payout) domain.Payout {
-	if s.registry == nil {
-		s.log.Error("provider registry not configured", zap.String("payout_id", payout.ID.String()))
+// sendPayoutWithOrchestrator uses the orchestrator to send the payout with fallback support.
+func (s *PayoutServiceServer) sendPayoutWithOrchestrator(ctx context.Context, payout domain.Payout) domain.Payout {
+	if s.orchestrator == nil {
+		s.log.Error("orchestrator not configured", zap.String("payout_id", payout.ID.String()))
 		updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
 			State: domain.PayoutStateFailed,
 		})
 		if updateErr != nil {
 			s.log.Error("failed to mark payout as failed", zap.String("payout_id", payout.ID.String()), zap.Error(updateErr))
-			return payout
 		}
 		return updated
 	}
 
-	client, err := s.registry.Get(payout.Rail)
-	if err != nil {
-		s.log.Error("no provider for rail", zap.String("rail", string(payout.Rail)), zap.Error(err))
-		updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
-			State: domain.PayoutStateFailed,
+	result := s.orchestrator.SendPayoutWithFallback(ctx, payout, s.routingAlgo)
+
+	if result.Success {
+		updated, err := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+			State:      domain.PayoutStateSent,
+			ExternalID: &result.ExternalID,
+			Provider:   result.UsedProvider,
 		})
-		if updateErr != nil {
-			s.log.Error("failed to mark payout as failed", zap.String("payout_id", payout.ID.String()), zap.Error(updateErr))
-			return payout
-		}
-		return updated
-	}
-
-	extID, sendErr := client.SendPayout(ctx, payout)
-	if sendErr != nil {
-		var re *provider.RetryableError
-		if stderrors.As(sendErr, &re) && !re.Retryable {
-			s.log.Warn("provider rejected payout (non-retryable)",
+		if err != nil {
+			s.log.Error("failed to mark payout as sent",
 				zap.String("payout_id", payout.ID.String()),
-				zap.Error(sendErr),
+				zap.Error(err),
 			)
-		} else {
-			s.log.Error("provider error (retryable or unknown)",
-				zap.String("payout_id", payout.ID.String()),
-				zap.Error(sendErr),
-			)
-		}
-		updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
-			State: domain.PayoutStateFailed,
-		})
-		if updateErr != nil {
-			s.log.Error("failed to mark payout as failed", zap.String("payout_id", payout.ID.String()), zap.Error(updateErr))
 			return payout
 		}
 		return updated
 	}
 
-	updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
-		State:      domain.PayoutStateSent,
-		ExternalID: &extID,
+	// All providers failed
+	s.log.Error("payout failed after trying all providers",
+		zap.String("payout_id", payout.ID.String()),
+		zap.Strings("tried_providers", providerNames(result.TriedProviders)),
+	)
+
+	// Store which provider was last tried (for debugging)
+	var lastProvider domain.Provider
+	if len(result.TriedProviders) > 0 {
+		lastProvider = result.TriedProviders[len(result.TriedProviders)-1]
+	}
+
+	updated, err := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+		State:    domain.PayoutStateFailed,
+		Provider: lastProvider,
 	})
-	if updateErr != nil {
-		s.log.Error("failed to mark payout as sent", zap.String("payout_id", payout.ID.String()), zap.Error(updateErr))
+	if err != nil {
+		s.log.Error("failed to mark payout as failed", zap.String("payout_id", payout.ID.String()), zap.Error(err))
 		return payout
 	}
-	s.log.Info("payout sent", zap.String("payout_id", payout.ID.String()), zap.String("external_id", extID))
 	return updated
+}
+
+// providerNames converts provider slice to strings for logging.
+func providerNames(providers []domain.Provider) []string {
+	names := make([]string, len(providers))
+	for i, p := range providers {
+		names[i] = string(p)
+	}
+	return names
 }
 
 func (s *PayoutServiceServer) GetPayout(
@@ -253,6 +248,8 @@ func (s *PayoutServiceServer) GetPayout(
 var cancelableStates = []domain.PayoutState{
 	domain.PayoutStateCreated,
 	domain.PayoutStateQueued,
+	domain.PayoutStateSent,
+	domain.PayoutStatePending,
 }
 
 func (s *PayoutServiceServer) CancelPayout(
@@ -270,21 +267,43 @@ func (s *PayoutServiceServer) CancelPayout(
 		return nil, status.Error(codes.InvalidArgument, errors.CodeInvalidUUID)
 	}
 
-	_, err = s.payoutRepo.CancelPayout(ctx, id, cancelableStates)
+	// Get payout first to check state and provider
+	payout, err := s.payoutRepo.GetPayout(ctx, id)
 	if err != nil {
 		if stderrors.Is(err, postgres.ErrNotFound) {
-			// ErrNotFound here means either payout doesn't exist OR state is not cancelable.
-			// Distinguish by fetching the payout.
-			existing, getErr := s.payoutRepo.GetPayout(ctx, id)
-			if getErr != nil {
-				if stderrors.Is(getErr, postgres.ErrNotFound) {
-					return nil, status.Error(codes.NotFound, errors.CodeNotFound)
-				}
-				return nil, status.Errorf(codes.Internal, "get payout: %v", getErr)
-			}
-			return nil, status.Errorf(codes.FailedPrecondition, "%s: payout cannot be canceled in state %q",
-				errors.CodeInvalidState, existing.State)
+			return nil, status.Error(codes.NotFound, errors.CodeNotFound)
 		}
+		return nil, status.Errorf(codes.Internal, "get payout: %v", err)
+	}
+
+	// Check if state is cancelable
+	isCancelable := false
+	for _, s := range cancelableStates {
+		if payout.State == s {
+			isCancelable = true
+			break
+		}
+	}
+	if !isCancelable {
+		return nil, status.Errorf(codes.FailedPrecondition, "%s: payout cannot be canceled in state %q",
+			errors.CodeInvalidState, payout.State)
+	}
+
+	// Try to cancel with provider if orchestrator is configured
+	if s.orchestrator != nil && payout.Provider != "" {
+		if err := s.orchestrator.CancelPayout(ctx, payout); err != nil {
+			// Log but continue - we still want to update our DB state
+			s.log.Warn("provider cancel failed, continuing with DB update",
+				zap.String("payout_id", id.String()),
+				zap.String("provider", string(payout.Provider)),
+				zap.Error(err),
+			)
+		}
+	}
+
+	// Update DB state
+	_, err = s.payoutRepo.CancelPayout(ctx, id, cancelableStates)
+	if err != nil {
 		return nil, status.Errorf(codes.Internal, "cancel payout: %v", err)
 	}
 
@@ -318,10 +337,11 @@ func (s *PayoutServiceServer) ApplyProviderUpdate(
 		return nil, status.Errorf(codes.InvalidArgument, "unknown provider status: %s", req.GetProviderStatus())
 	}
 
-	// Update the payout state (preserve external_id)
+	// Update the payout state (preserve external_id and provider)
 	updated, err := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
 		State:      newState,
-		ExternalID: payout.ExternalID, // Preserve existing external_id
+		ExternalID: payout.ExternalID,
+		Provider:   payout.Provider,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "update payout state: %v", err)

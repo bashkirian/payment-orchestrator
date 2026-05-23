@@ -78,3 +78,17 @@ func (r *Registry) SetActive(rail domain.Rail, provider domain.Provider, active 
 	}
 	return false
 }
+
+// GetByProvider returns the provider client by provider name.
+// This is used for operations like CancelPayout where we need to call
+// the specific provider that was used for the original payout.
+func (r *Registry) GetByProvider(provider domain.Provider) (Client, error) {
+	for _, entries := range r.providers {
+		for _, e := range entries {
+			if e.Meta.Provider == provider {
+				return e.Client, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("provider: no client registered for provider %q", provider)
+}

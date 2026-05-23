@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	postgres_tc "github.com/testcontainers/testcontainers-go/modules/postgres"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -79,7 +80,7 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 	    amount_cents bigint      NOT NULL CHECK (amount_cents > 0),
 	    currency     text        NOT NULL,
 	    rail         text        NOT NULL CHECK (rail IN ('card', 'crypto')),
-	    provider     text        NOT NULL CHECK (provider IN ('stripe', 'crypto_sim')),
+	    provider     text        NULL CHECK (provider IN ('stripe', 'crypto_sim', 'mock_card')),
 	    external_id  text        NULL UNIQUE,
 	    created_at   timestamptz NOT NULL DEFAULT now(),
 	    updated_at   timestamptz NOT NULL DEFAULT now()
@@ -113,18 +114,30 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 
 // payoutTestServer holds test dependencies
 type payoutTestServer struct {
-	pool     *pgxpool.Pool
-	registry *provider.Registry
+	pool         *pgxpool.Pool
+	orchestrator *provider.Orchestrator
+	routingAlgo  provider.RoutingAlgorithm
 }
 
 func newTestServer(t *testing.T, pool *pgxpool.Pool) *payoutTestServer {
 	t.Helper()
 	reg := provider.NewRegistry()
-	reg.Register(domain.RailCard, &mockprovider.Provider{})
-	reg.Register(domain.RailCrypto, &mockprovider.Provider{})
+	reg.RegisterWithMeta(domain.RailCard, &mockprovider.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderStripe,
+		IsActive: true,
+	})
+	reg.RegisterWithMeta(domain.RailCrypto, &mockprovider.Provider{}, domain.ProviderMeta{
+		Provider: domain.ProviderCryptoSim,
+		IsActive: true,
+	})
+	tracker := provider.NewSuccessTracker()
+	router := provider.NewRouter(reg, tracker, 10)
+	log := zap.NewNop()
+	orch := provider.NewOrchestrator(reg, router, tracker, log)
 	return &payoutTestServer{
-		pool:     pool,
-		registry: reg,
+		pool:         pool,
+		orchestrator: orch,
+		routingAlgo:  provider.RoutingPriority,
 	}
 }
 
@@ -149,14 +162,14 @@ func (s *payoutTestServer) createPayout(
 
 	txErr := postgres.RunInTx(ctx, s.pool, func(ctx context.Context, q sqlcgen.Querier) error {
 		r := domain.Rail(rail)
-		provider := railToProvider(r)
 
+		// Create payout with empty provider (will be set by orchestrator)
 		payout, err := postgres.NewPayoutRepo(q).CreatePayout(ctx, domain.CreatePayoutParams{
 			State:       domain.PayoutStateCreated,
 			AmountCents: amount,
 			Currency:    currency,
 			Rail:        r,
-			Provider:    provider,
+			Provider:    "", // Will be set by orchestrator
 		})
 		if err != nil {
 			return err
@@ -181,25 +194,26 @@ func (s *payoutTestServer) createPayout(
 	switch {
 	case txErr == nil:
 		payout := result.newPayout
-		// Attempt to send via provider, mirroring production logic.
-		client, err := s.registry.Get(payout.Rail)
-		if err != nil {
-			repo := postgres.NewPayoutRepo(sqlcgen.New(s.pool))
-			updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{State: domain.PayoutStateFailed})
+		// Use orchestrator to send payout
+		sendResult := s.orchestrator.SendPayoutWithFallback(ctx, payout, s.routingAlgo)
+		repo := postgres.NewPayoutRepo(sqlcgen.New(s.pool))
+		if sendResult.Success {
+			updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+				State:      domain.PayoutStateSent,
+				ExternalID: &sendResult.ExternalID,
+				Provider:   sendResult.UsedProvider,
+			})
 			payout = updated
 		} else {
-			extID, sendErr := client.SendPayout(ctx, payout)
-			repo := postgres.NewPayoutRepo(sqlcgen.New(s.pool))
-			if sendErr != nil {
-				updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{State: domain.PayoutStateFailed})
-				payout = updated
-			} else {
-				updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
-					State:      domain.PayoutStateSent,
-					ExternalID: &extID,
-				})
-				payout = updated
+			var lastProvider domain.Provider
+			if len(sendResult.TriedProviders) > 0 {
+				lastProvider = sendResult.TriedProviders[len(sendResult.TriedProviders)-1]
 			}
+			updated, _ := repo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
+				State:    domain.PayoutStateFailed,
+				Provider: lastProvider,
+			})
+			payout = updated
 		}
 		return &orchestratorv1.CreatePayoutResponse{
 			PayoutId: payout.ID.String(),
@@ -221,15 +235,6 @@ func (s *payoutTestServer) createPayout(
 
 	default:
 		return nil, status.Errorf(codes.Internal, "create payout: %v", txErr)
-	}
-}
-
-func railToProvider(rail domain.Rail) domain.Provider {
-	switch rail {
-	case domain.RailCrypto:
-		return domain.ProviderCryptoSim
-	default:
-		return domain.ProviderStripe
 	}
 }
 
@@ -283,22 +288,43 @@ func (s *payoutTestServer) cancelPayout(
 		return nil, status.Error(codes.InvalidArgument, "payout_id must be a valid UUID")
 	}
 
-	cancelableStates := []domain.PayoutState{domain.PayoutStateCreated, domain.PayoutStateQueued}
+	cancelableStates := []domain.PayoutState{
+		domain.PayoutStateCreated,
+		domain.PayoutStateQueued,
+		domain.PayoutStateSent,
+		domain.PayoutStatePending,
+	}
 	repo := postgres.NewPayoutRepo(sqlcgen.New(s.pool))
+
+	// Get payout to check state and provider
+	payout, err := repo.GetPayout(ctx, id)
+	if err != nil {
+		if errors.Is(err, postgres.ErrNotFound) {
+			return nil, status.Errorf(codes.NotFound, "payout %s not found", payoutID)
+		}
+		return nil, status.Errorf(codes.Internal, "get payout: %v", err)
+	}
+
+	// Check if state is cancelable
+	isCancelable := false
+	for _, s := range cancelableStates {
+		if payout.State == s {
+			isCancelable = true
+			break
+		}
+	}
+	if !isCancelable {
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"payout cannot be canceled in state %q", payout.State)
+	}
+
+	// Try to cancel with provider
+	if s.orchestrator != nil && payout.Provider != "" {
+		_ = s.orchestrator.CancelPayout(ctx, payout) // Log but continue
+	}
 
 	_, err = repo.CancelPayout(ctx, id, cancelableStates)
 	if err != nil {
-		if errors.Is(err, postgres.ErrNotFound) {
-			existing, getErr := repo.GetPayout(ctx, id)
-			if getErr != nil {
-				if errors.Is(getErr, postgres.ErrNotFound) {
-					return nil, status.Errorf(codes.NotFound, "payout %s not found", payoutID)
-				}
-				return nil, status.Errorf(codes.Internal, "get payout: %v", getErr)
-			}
-			return nil, status.Errorf(codes.FailedPrecondition,
-				"payout cannot be canceled in state %q", existing.State)
-		}
 		return nil, status.Errorf(codes.Internal, "cancel payout: %v", err)
 	}
 
@@ -723,8 +749,9 @@ func TestCancelPayout_Created_Integration(t *testing.T) {
 
 	// Insert directly in 'created' state — createPayout now transitions to 'sent',
 	// which is not cancelable.
+	provider := "stripe"
 	row, err := sqlcgen.New(pool).CreatePayout(ctx, sqlcgen.CreatePayoutParams{
-		State: "created", AmountCents: 5000, Currency: "USD", Rail: "card", Provider: "stripe",
+		State: "created", AmountCents: 5000, Currency: "USD", Rail: "card", Provider: &provider,
 	})
 	require.NoError(t, err)
 	payoutID := row.ID.String()
@@ -749,12 +776,13 @@ func TestCancelPayout_Queued_Integration(t *testing.T) {
 	defer cleanup()
 
 	// Insert a payout in 'queued' state directly
+	provider := "stripe"
 	row, err := sqlcgen.New(pool).UpdatePayoutState(ctx, sqlcgen.UpdatePayoutStateParams{
 		State:      "queued",
 		ExternalID: nil,
 		ID: func() uuid.UUID {
 			r, e := sqlcgen.New(pool).CreatePayout(ctx, sqlcgen.CreatePayoutParams{
-				State: "created", AmountCents: 3000, Currency: "USD", Rail: "card", Provider: "stripe",
+				State: "created", AmountCents: 3000, Currency: "USD", Rail: "card", Provider: &provider,
 			})
 			require.NoError(t, e)
 			return r.ID
@@ -847,12 +875,13 @@ func TestCancelPayout_AlreadyCanceled_Integration(t *testing.T) {
 	server := newTestServer(t, pool)
 
 	// Create payout directly in 'created' state (not via createPayout which sets 'sent')
+	provider := "stripe"
 	row, err := sqlcgen.New(pool).CreatePayout(ctx, sqlcgen.CreatePayoutParams{
 		State:       "created",
 		AmountCents: 5000,
 		Currency:    "USD",
 		Rail:        "card",
-		Provider:    "stripe",
+		Provider:    &provider,
 	})
 	require.NoError(t, err)
 	payoutID := row.ID.String()
