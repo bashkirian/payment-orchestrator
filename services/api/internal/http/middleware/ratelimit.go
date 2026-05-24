@@ -134,6 +134,11 @@ func (rl *RateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 	tokensToAdd := elapsed * rl.config.RequestsPerSecond
 	tokens = min(tokens+tokensToAdd, float64(rl.config.BurstSize))
 
+	// Track bucket refills in Prometheus
+	if tokensToAdd > 0 {
+		rateLimitBucketRefills.Inc()
+	}
+
 	// Check if we have tokens
 	if tokens >= 1.0 {
 		tokens -= 1.0
