@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -137,6 +138,9 @@ func run(cfgFile string) error {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+	// Prometheus metrics endpoint
+	httpMux.Get("/metrics", promhttp.Handler().ServeHTTP)
+
 	httpSrv := &http.Server{
 		Addr:    cfg.HTTPAddr,
 		Handler: httpMux,

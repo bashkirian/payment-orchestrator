@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/rueidis"
 	"go.uber.org/zap"
 
@@ -29,6 +30,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Use(requestIDMiddleware)
 	r.Use(middleware.Recoverer)
 	r.Use(accessLog(deps.Log))
+
+	// HTTP metrics middleware
+	r.Use(observability.HTTPMetricsMiddleware(observability.NamespaceWebhook))
+
+	// Prometheus metrics endpoint
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 	// Health check endpoint
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {

@@ -7,8 +7,32 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/redis/rueidis"
 	"go.uber.org/zap"
+)
+
+// Prometheus metrics for rate limiting
+var (
+	rateLimitRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "api",
+			Subsystem: "ratelimit",
+			Name:      "requests_total",
+			Help:      "Total number of rate limit checks",
+		},
+		[]string{"result"}, // allowed, rejected
+	)
+
+	rateLimitBucketRefills = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "api",
+			Subsystem: "ratelimit",
+			Name:      "bucket_refills_total",
+			Help:      "Total number of token bucket refills",
+		},
+	)
 )
 
 // RateLimitConfig holds configuration for the rate limiter.
@@ -31,6 +55,7 @@ func DefaultRateLimitConfig() RateLimitConfig {
 }
 
 // Metrics holds rate limiting metrics counters.
+// Deprecated: Use Prometheus metrics instead. Kept for backward compatibility.
 type Metrics struct {
 	// RequestsTotal is the total number of requests processed.
 	RequestsTotal int64
@@ -47,7 +72,7 @@ type RateLimiter struct {
 	client  rueidis.Client
 	config  RateLimitConfig
 	log     *zap.Logger
-	metrics Metrics
+	metrics Metrics // Deprecated: kept for GetMetrics() backward compatibility
 }
 
 // NewRateLimiter creates a new Redis-backed rate limiter.
@@ -125,12 +150,18 @@ func (rl *RateLimiter) Allow(ctx context.Context, key string) (bool, error) {
 		// Set expiry for cleanup (5 minutes of inactivity)
 		rl.client.Do(ctx, rl.client.B().Expire().Key(fullKey).Seconds(300).Build())
 
+		// Record Prometheus metrics
+		rateLimitRequestsTotal.WithLabelValues("allowed").Inc()
+
 		rl.metrics.RequestsAllowed++
 		rl.metrics.RequestsTotal++
 		return true, nil
 	}
 
 	// No tokens available - rate limited
+	// Record Prometheus metrics
+	rateLimitRequestsTotal.WithLabelValues("rejected").Inc()
+
 	rl.metrics.RequestsRejected++
 	rl.metrics.RequestsTotal++
 	return false, nil
