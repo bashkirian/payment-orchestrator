@@ -23,6 +23,13 @@ type httpMetrics struct {
 	inFlight       *prometheus.GaugeVec
 }
 
+// RecordRequest records a single request with the given labels.
+// This is useful for recording 429 responses from middleware that short-circuits.
+func RecordRequest(namespace, method, path, status string) {
+	m := getHTTPMetrics(namespace)
+	m.requestsTotal.WithLabelValues(method, path, status).Inc()
+}
+
 // getHTTPMetrics returns cached metrics or creates new ones for the namespace.
 func getHTTPMetrics(namespace string) *httpMetrics {
 	httpMetricsMu.Lock()

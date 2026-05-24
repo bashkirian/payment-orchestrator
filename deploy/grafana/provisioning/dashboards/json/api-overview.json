@@ -453,8 +453,64 @@
       "gridPos": {
         "h": 4,
         "w": 6,
-        "x": 0,
+        "x": 12,
         "y": 16
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "api_ratelimit_bucket_refills_total",
+          "refId": "A"
+        }
+      ],
+      "title": "Token Bucket Refills",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 20
       },
       "id": 5,
       "options": {
@@ -510,7 +566,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 16
+        "y": 20
       },
       "id": 6,
       "options": {
