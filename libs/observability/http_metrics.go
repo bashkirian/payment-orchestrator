@@ -116,27 +116,3 @@ func normalizePath(r *http.Request) string {
 	return pattern
 }
 
-// MustRegisterHTTPMetrics ensures HTTP metrics are registered.
-// Call this if you need to register metrics explicitly (e.g., in tests).
-func MustRegisterHTTPMetrics(namespace string) {
-	prometheus.MustRegister(
-		NewHistogram(HistogramOpts{
-			Namespace: namespace,
-			Subsystem: "http",
-			Name:      "request_duration",
-			Help:      "HTTP request latency in seconds",
-		}, "method", "path", "status"),
-		NewCounter(CounterOpts{
-			Namespace: namespace,
-			Subsystem: "http",
-			Name:      "requests",
-			Help:      "Total number of HTTP requests",
-		}, "method", "path", "status"),
-		NewGauge(GaugeOpts{
-			Namespace: namespace,
-			Subsystem: "http",
-			Name:      "requests_in_flight",
-			Help:      "Current number of HTTP requests being processed",
-		}, "method"),
-	)
-}
