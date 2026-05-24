@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/rueidis"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -19,6 +20,7 @@ import (
 	"github.com/bashkirian/fintech-project/libs/errors"
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
 	"github.com/bashkirian/fintech-project/libs/grpcutil"
+	"github.com/bashkirian/fintech-project/libs/observability"
 	apiconfig "github.com/bashkirian/fintech-project/services/api/internal/config"
 	apigrpc "github.com/bashkirian/fintech-project/services/api/internal/grpc"
 	apimiddleware "github.com/bashkirian/fintech-project/services/api/internal/http/middleware"
@@ -44,6 +46,9 @@ func NewRouterWithClient(log *zap.Logger, client PayoutClient, redis rueidis.Cli
 	router.Use(middleware.Recoverer)
 	router.Use(accessLog(log))
 
+	// HTTP metrics middleware
+	router.Use(observability.HTTPMetricsMiddleware(observability.NamespaceAPI))
+
 	// Configure rate limiter
 	rateLimitConfig := apimiddleware.RateLimitConfig{
 		KeyPrefix:         "ratelimit:global",
@@ -51,6 +56,9 @@ func NewRouterWithClient(log *zap.Logger, client PayoutClient, redis rueidis.Cli
 		BurstSize:         cfg.RateLimitBurstSize,
 	}
 	router.Use(apimiddleware.RateLimitWithConfig(log, redis, cfg.RateLimitEnabled, rateLimitConfig))
+
+	// Metrics endpoint for Prometheus scraping
+	router.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 	router.Get("/health", func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

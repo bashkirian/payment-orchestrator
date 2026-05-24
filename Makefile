@@ -234,6 +234,25 @@ clean: ## Clean build artifacts
 	rm -rf ./bin
 	rm -f profile.cov
 
+# Observability
+.PHONY: observability-up
+observability-up: ## Start Prometheus and Grafana
+	docker compose -p $(COMPOSE_PROJECT) up -d prometheus grafana
+	@echo "Prometheus: http://localhost:9090"
+	@echo "Grafana: http://localhost:3000 (admin/admin)"
+
+.PHONY: observability-down
+observability-down: ## Stop Prometheus and Grafana
+	docker compose -p $(COMPOSE_PROJECT) stop prometheus grafana
+
+.PHONY: grafana-open
+grafana-open: ## Open Grafana in browser
+	open http://localhost:3000
+
+.PHONY: prometheus-open
+prometheus-open: ## Open Prometheus in browser
+	open http://localhost:9090
+
 # Demo
 .PHONY: demo
 demo: ## Run local demo: start orchestrator and webhook services (requires make up && make build)

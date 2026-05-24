@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # API service (HTTP)
+  - job_name: 'api'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+    metrics_path: /metrics
+
+  # Orchestrator service (HTTP metrics endpoint)
+  - job_name: 'orchestrator'
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+    metrics_path: /metrics
+
+  # Webhook service (HTTP)
+  - job_name: 'webhook'
+    static_configs:
+      - targets: ['host.docker.internal:8082']
+    metrics_path: /metrics

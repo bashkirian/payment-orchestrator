@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
+	"github.com/bashkirian/fintech-project/libs/observability"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
 )
 
@@ -21,7 +22,11 @@ type Server struct {
 }
 
 func New(log *zap.Logger, pool *pgxpool.Pool, orchestrator *provider.Orchestrator) *Server {
-	srv := grpc.NewServer()
+	// Create gRPC metrics and register with Prometheus
+	grpcMetrics := observability.NewGRPCMetrics()
+	grpcMetrics.Register()
+
+	srv := grpc.NewServer(grpcMetrics.GRPCServerOptions()...)
 
 	orchestratorv1.RegisterPayoutServiceServer(srv, newPayoutServiceServer(log, pool, orchestrator))
 

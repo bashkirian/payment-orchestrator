@@ -1,0 +1,549 @@
+{
+  "info": {
+    "_postman_id": "fintech-orchestrator-mvp",
+    "name": "Fintech Orchestrator MVP",
+    "description": "Payment orchestrator service with multi-provider routing and automatic fallback.\n\n## Services\n- **API**: HTTP REST API (port 8080)\n- **Orchestrator**: gRPC service (port 50051)\n- **Webhook**: HTTP webhook receiver (port 8082)\n\n## Getting Started\n1. Run `make up` to start Postgres and Redis\n2. Run `make migrate-up` to apply migrations\n3. Run `make build` to build all services\n4. Run `make demo` to start orchestrator and webhook\n5. In another terminal, run `./bin/api` to start the API\n\n## Idempotency\nAll CreatePayout requests require an `Idempotency-Key` header.\nReplay the same key with the same request body to get the same result.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "api_base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "webhook_base_url",
+      "value": "http://localhost:8082",
+      "type": "string"
+    },
+    {
+      "key": "payout_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "API - Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_base_url}}/health",
+              "host": ["{{api_base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Basic health check endpoint. Returns 200 OK if service is running."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{api_base_url}}/health"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payouts",
+      "item": [
+        {
+          "name": "Create Payout - Card",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 202', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "",
+                  "pm.test('Response has payout_id', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.payout_id).to.exist;",
+                  "    pm.collectionVariables.set('payout_id', json.payout_id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "description": "Unique key for idempotent requests. Auto-generated UUID."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 1000,\n  \"currency\": \"USD\",\n  \"rail\": \"card\"\n}"
+            },
+            "url": {
+              "raw": "{{api_base_url}}/v1/payouts",
+              "host": ["{{api_base_url}}"],
+              "path": ["v1", "payouts"]
+            },
+            "description": "Create a new card payout. Amount is in cents (1000 = $10.00).\n\nThe request will be routed through providers configured for the 'card' rail (stripe, mock_card)."
+          },
+          "response": [
+            {
+              "name": "Success - Created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "test-idempotency-key-001"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": 1000,\n  \"currency\": \"USD\",\n  \"rail\": \"card\"\n}"
+                },
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts"
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"payout_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"status\": \"pending\"\n}"
+            },
+            {
+              "name": "Error - Missing Idempotency-Key",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": 1000,\n  \"currency\": \"USD\",\n  \"rail\": \"card\"\n}"
+                },
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"Idempotency-Key header is required\"\n}"
+            },
+            {
+              "name": "Error - Idempotency Conflict",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Idempotency-Key",
+                    "value": "already-used-key"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": 2000,\n  \"currency\": \"EUR\",\n  \"rail\": \"card\"\n}"
+                },
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts"
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"code\": \"IDEMPOTENCY_CONFLICT\",\n  \"message\": \"idempotency key reused with different request\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Payout - Crypto",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 202', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "",
+                  "pm.test('Response has payout_id', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.payout_id).to.exist;",
+                  "    pm.collectionVariables.set('payout_id', json.payout_id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "description": "Unique key for idempotent requests"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 50000,\n  \"currency\": \"USD\",\n  \"rail\": \"crypto\"\n}"
+            },
+            "url": {
+              "raw": "{{api_base_url}}/v1/payouts",
+              "host": ["{{api_base_url}}"],
+              "path": ["v1", "payouts"]
+            },
+            "description": "Create a crypto payout. Will be routed to the crypto_sim provider."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Payout",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_base_url}}/v1/payouts/{{payout_id}}",
+              "host": ["{{api_base_url}}"],
+              "path": ["v1", "payouts", "{{payout_id}}"]
+            },
+            "description": "Get payout details by ID. Use the payout_id from Create Payout response."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts/550e8400-e29b-41d4-a716-446655440000"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"payout_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"status\": \"succeeded\",\n  \"amount\": 1000,\n  \"currency\": \"USD\",\n  \"rail\": \"card\",\n  \"provider\": \"stripe\",\n  \"external_id\": \"pi_1234567890\"\n}"
+            },
+            {
+              "name": "Error - Not Found",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts/non-existent-id"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"payout not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Cancel Payout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{api_base_url}}/v1/payouts/{{payout_id}}/cancel",
+              "host": ["{{api_base_url}}"],
+              "path": ["v1", "payouts", "{{payout_id}}", "cancel"]
+            },
+            "description": "Cancel a pending payout. Only payouts in 'pending' state can be cancelled."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts/550e8400-e29b-41d4-a716-446655440000/cancel"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"success\": true\n}"
+            },
+            {
+              "name": "Error - Invalid State",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts/550e8400-e29b-41d4-a716-446655440000/cancel"
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"code\": \"INVALID_STATE\",\n  \"message\": \"payout cannot be cancelled in current state\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Idempotency Replay - Same Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "idempotency-test-same-request",
+                "description": "Use the same key twice with same body"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 2500,\n  \"currency\": \"USD\",\n  \"rail\": \"card\"\n}"
+            },
+            "url": {
+              "raw": "{{api_base_url}}/v1/payouts",
+              "host": ["{{api_base_url}}"],
+              "path": ["v1", "payouts"]
+            },
+            "description": "Send the same request with the same idempotency key twice.\nThe second request should return the same payout_id (idempotent behavior)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Webhook",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{webhook_base_url}}/healthz",
+              "host": ["{{webhook_base_url}}"],
+              "path": ["healthz"]
+            },
+            "description": "Webhook service health check."
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{webhook_base_url}}/healthz"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Stripe Webhook (Manual Test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Stripe-Signature",
+                "value": "",
+                "description": "Stripe webhook signature. Use Stripe CLI for real testing: `stripe listen --forward-to localhost:8082/v1/webhooks/stripe`"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"evt_test_123\",\n  \"object\": \"event\",\n  \"type\": \"payment_intent.succeeded\",\n  \"data\": {\n    \"object\": {\n      \"id\": \"pi_test_123\",\n      \"object\": \"payment_intent\",\n      \"status\": \"succeeded\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{webhook_base_url}}/v1/webhooks/stripe",
+              "host": ["{{webhook_base_url}}"],
+              "path": ["v1", "webhooks", "stripe"]
+            },
+            "description": "**Note**: This endpoint requires a valid Stripe signature. For testing:\n\n1. Install Stripe CLI\n2. Run: `stripe listen --forward-to localhost:8082/v1/webhooks/stripe`\n3. Use `stripe trigger payment_intent.succeeded` to send test events\n\nThe signature verification will fail if sent manually without proper signing."
+          },
+          "response": [
+            {
+              "name": "Invalid Signature",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"id\": \"evt_test_123\"\n}"
+                },
+                "url": {
+                  "raw": "{{webhook_base_url}}/v1/webhooks/stripe"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"missing stripe signature\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "Webhook endpoints for receiving provider callbacks.\n\nFor Stripe testing, use the Stripe CLI:\n```bash\n# Forward webhooks to local webhook service\nstripe listen --forward-to localhost:8082/v1/webhooks/stripe\n\n# Trigger test events\nstripe trigger payment_intent.succeeded\nstripe trigger payment_intent.payment_failed\n```"
+    },
+    {
+      "name": "Error Scenarios",
+      "item": [
+        {
+          "name": "Invalid Amount",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": -100,\n  \"currency\": \"USD\",\n  \"rail\": \"card\"\n}"
+            },
+            "url": {
+              "raw": "{{api_base_url}}/v1/payouts",
+              "host": ["{{api_base_url}}"],
+              "path": ["v1", "payouts"]
+            },
+            "description": "Amount must be positive."
+          },
+          "response": [
+            {
+              "name": "Error Response",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"amount must be positive\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Missing Rail",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 1000,\n  \"currency\": \"USD\"\n}"
+            },
+            "url": {
+              "raw": "{{api_base_url}}/v1/payouts",
+              "host": ["{{api_base_url}}"],
+              "path": ["v1", "payouts"]
+            },
+            "description": "Rail is required."
+          },
+          "response": [
+            {
+              "name": "Error Response",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"code\": \"INVALID_ARGUMENT\",\n  \"message\": \"rail is required\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Invalid Payout ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{api_base_url}}/v1/payouts/not-a-uuid",
+              "host": ["{{api_base_url}}"],
+              "path": ["v1", "payouts", "not-a-uuid"]
+            },
+            "description": "Payout ID must be a valid UUID."
+          },
+          "response": [
+            {
+              "name": "Error Response",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{api_base_url}}/v1/payouts/not-a-uuid"
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"code\": \"INVALID_UUID\",\n  \"message\": \"invalid payout ID format\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "Test error handling scenarios."
+    }
+  ]
+}
