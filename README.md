@@ -1,109 +1,167 @@
-# fintech-project
-Payment orchestrator
+# Payment Orchestrator
 
-## Start
+A payment orchestrator service that routes payouts through multiple providers (Stripe, mock providers) with automatic fallback support.
 
-Development is handled in docker containers
-
-1. Copy .env.example contents into your local .env file
-2. Run migrations
-3. make local-up
-
-## API environment
-
-The API reads `API_*` variables from the process environment. For local development it also loads the root `.env` file automatically via `godotenv`.
-
-Example `.env` values:
-
-```env
-API_ENV=development
-API_HTTP_ADDR=:8080
-API_LOG_LEVEL=info
-API_READ_TIMEOUT=5s
-API_READ_HEADER_TIMEOUT=2s
-API_WRITE_TIMEOUT=10s
-API_IDLE_TIMEOUT=30s
-API_SHUTDOWN_TIMEOUT=10s
-```
-
-Common local flows:
-
-```bash
-make build-api && make run-api
-make api-up
-```
-
-- `make run-api` runs the API binary locally and loads `.env` via the app.
-- `make api-up` starts the API in Docker Compose with the same `API_*` values coming from `.env`.
-
-## Observability
-
-The project includes a full observability stack with Prometheus and Grafana.
-
-### Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         SERVICES                                 │
-│                                                                  │
-│   API (:8080)      Orchestrator (:8081/50051)    Webhook (:8082)│
-│   └─ /metrics      └─ /metrics                    └─ /metrics   │
-└──────────────────────────────┬──────────────────────────────────┘
-                               │ scrape /metrics
-                               ▼
-                    ┌─────────────────────┐
-                    │    Prometheus       │
-                    │      :9090          │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │      Grafana        │
-                    │       :3000         │
-                    └─────────────────────┘
+                                    ┌─────────────────────────────────────────────────────────────┐
+                                    │                        CLIENT                                │
+                                    │                   (Merchant System)                         │
+                                    └─────────────────────────────┬───────────────────────────────┘
+                                                                  │
+                                                                  │ HTTP POST /v1/payouts
+                                                                  ▼
+                                    ┌─────────────────────────────────────────────────────────────┐
+                                    │                        API (:8080)                          │
+                                    │                                                             │
+                                    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+                                    │  │ Rate Limiter│  │ HTTP Router │  │ Prometheus Metrics  │  │
+                                    │  │  (Redis)    │  │   (Chi)     │  │    (/metrics)       │  │
+                                    │  └─────────────┘  └──────┬──────┘  └─────────────────────┘  │
+                                    └──────────────────────────┼──────────────────────────────────┘
+                                                               │
+                                                               │ gRPC (CreatePayout, GetPayout, CancelPayout)
+                                                               ▼
+                                    ┌─────────────────────────────────────────────────────────────┐
+                                    │                    ORCHESTRATOR (:50051)                    │
+                                    │                                                             │
+                                    │  ┌──────────────────────────────────────────────────────┐  │
+                                    │  │                    Routing Layer                      │  │
+                                    │  │  ┌──────────┐  ┌──────────┐  ┌─────────────────────┐  │  │
+                                    │  │  │ Priority │  │ Weighted │  │ SuccessBased        │  │  │
+                                    │  │  │          │  │          │  │ (track success %)   │  │  │
+                                    │  │  └──────────┘  └──────────┘  └─────────────────────┘  │  │
+                                    │  └──────────────────────────┬───────────────────────────┘  │
+                                    │                             │                              │
+                                    │  ┌──────────────────────────▼───────────────────────────┐  │
+                                    │  │              Fallback Engine                         │  │
+                                    │  │   Provider A ──► (fail) ──► Provider B ──► (fail)    │  │
+                                    │  │                                                       │  │
+                                    │  │   Terminal errors (decline, fraud) stop immediately  │  │
+                                    │  └──────────────────────────────────────────────────────┘  │
+                                    └──────────────────────────┬──────────────────────────────────┘
+                                                               │
+                                    ┌──────────────────────────┼──────────────────────────────────┐
+                                    │                          ▼                                  │
+                                    │  ┌─────────────────────────────────────────────────────┐   │
+                                    │  │                   PROVIDERS                          │   │
+                                    │  │                                                      │   │
+                                    │  │   ┌─────────┐   ┌─────────┐   ┌─────────────┐        │   │
+                                    │  │   │ Stripe  │   │Mock Card│   │ Crypto Sim  │        │   │
+                                    │  │   │ (card)  │   │ (card)  │   │  (crypto)   │        │   │
+                                    │  │   └─────────┘   └─────────┘   └─────────────┘        │   │
+                                    │  │        │              │               │              │   │
+                                    │  │        └──────────────┴───────────────┘              │   │
+                                    │  │                       │                              │   │
+                                    │  │                       ▼                              │   │
+                                    │  │              External Payment Rails                  │   │
+                                    │  └─────────────────────────────────────────────────────┘   │
+                                    └──────────────────────────────────────────────────────────────┘
+
+                                    ┌─────────────────────────────────────────────────────────────┐
+                                    │                    INFRASTRUCTURE                            │
+                                    │                                                             │
+                                    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+                                    │  │  PostgreSQL │  │    Redis    │  │      Grafana        │  │
+                                    │  │  (payouts)  │  │(rate limit) │  │     :3000           │  │
+                                    │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+                                    │                                                             │
+                                    │  ┌─────────────┐                                            │
+                                    │  │ Prometheus  │◄──── scrapes /metrics from all services    │
+                                    │  │   :9090     │                                            │
+                                    │  └─────────────┘                                            │
+                                    └─────────────────────────────────────────────────────────────┘
 ```
 
-### Quick Start
+## Features
+
+- **Multi-provider routing** - Route payouts through Stripe, mock providers, or crypto simulator
+- **Automatic fallback** - On retryable errors, automatically try the next provider
+- **Routing algorithms** - Priority, Weighted, and Success-based routing
+- **Idempotent API** - Safe request retries with idempotency keys
+- **Rate limiting** - Redis-backed token bucket rate limiter
+- **Observability** - Prometheus metrics + Grafana dashboards
+
+## Quick Start
 
 ```bash
 # Start infrastructure (Postgres, Redis)
 make up
 
-# Start observability stack
-make observability-up
+# Run migrations
+make migrate-up
 
-# Build and run services
+# Build services
 make build
+
+# Run orchestrator and API
 ./bin/orchestrator start --config deploy/configs/orchestrator-local.yaml &
-./bin/webhook start --config deploy/configs/webhook-local.yaml &
-API_REDIS_PASSWORD="change_me_redis_password" ./bin/api &
+./bin/api &
+```
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/v1/payouts` | Create a new payout |
+| `GET` | `/v1/payouts/{id}` | Get payout status |
+| `POST` | `/v1/payouts/{id}/cancel` | Cancel a pending payout |
+| `GET` | `/health` | Health check |
+| `GET` | `/metrics` | Prometheus metrics |
+
+Full API documentation: [docs/openapi.yaml](docs/openapi.yaml)
+
+## Example Request
+
+```bash
+curl -X POST http://localhost:8080/v1/payouts \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"amount": 1000, "currency": "USD", "rail": "card"}'
+```
+
+Response:
+```json
+{"payout_id": "550e8400-e29b-41d4-a716-446655440000"}
+```
+
+## Configuration
+
+Copy `.env.example` to `.env` and configure:
+
+```env
+API_ENV=development
+API_HTTP_ADDR=:8080
+API_RATE_LIMIT_ENABLED=true
+```
+
+## Observability
+
+```bash
+# Start Prometheus + Grafana
+make observability-up
 
 # Open Grafana
 make grafana-open
-# or visit http://localhost:3000 (admin/admin)
 ```
 
-### Available Metrics
+Pre-built dashboards:
+- **API Overview** - HTTP latency, request rate, rate limiter stats
+- **Orchestrator Overview** - gRPC latency, provider distribution
 
-| Service | Metrics |
-|---------|---------|
-| **API** | HTTP latency (p50/p95/p99), request counts, in-flight requests, rate limiter stats |
-| **Orchestrator** | gRPC latency per method, response codes, handling time histograms |
-| **Webhook** | HTTP latency, request counts, event processing stats |
-
-### Grafana Dashboards
-
-Pre-provisioned dashboards in the **Fintech** folder:
-
-- **API Overview** - HTTP latency, request rate by endpoint, error rate, rate limiter stats
-- **Orchestrator Overview** - gRPC latency, response code distribution, success rate
-- **Webhook Overview** - Event processing latency, request counts
-
-### Makefile Targets
+## Load Testing
 
 ```bash
-make observability-up    # Start Prometheus + Grafana
-make observability-down  # Stop observability stack
-make grafana-open        # Open Grafana in browser
-make prometheus-open     # Open Prometheus in browser
+# Run k6 load tests
+make loadtest-create      # Create payout load test
+make loadtest-rate-limit  # Rate limiter stress test
+```
+
+## Development
+
+```bash
+make build    # Build all services
+make test     # Run tests
+make lint     # Run linter
 ```
