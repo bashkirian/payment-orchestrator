@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bashkirian/fintech-project/libs/observability"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/redis/rueidis"
@@ -210,6 +211,9 @@ func RateLimitWithConfig(log *zap.Logger, client rueidis.Client, enabled bool, c
 					zap.String("remote_addr", r.RemoteAddr),
 					zap.String("path", r.URL.Path),
 				)
+
+				// Record 429 in HTTP metrics (middleware won't see this)
+				observability.RecordRequest("api", r.Method, r.URL.Path, "429")
 
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "1")

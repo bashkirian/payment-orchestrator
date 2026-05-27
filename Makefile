@@ -284,3 +284,22 @@ demo-trigger: ## Trigger test Stripe webhook events
 	@echo ""
 	@echo "Triggering payment_intent.canceled..."
 	@stripe trigger payment_intent.canceled
+
+# Load Testing
+K6_IMAGE := grafana/k6:latest
+K6_URL := -e API_URL=http://host.docker.internal:8080
+
+.PHONY: loadtest-create
+loadtest-create: ## Run create payout load test
+	docker run --rm --network host $(K6_URL) -v $(PWD)/loadtests:/loadtests $(K6_IMAGE) run /loadtests/scripts/create-payout.js
+
+.PHONY: loadtest-full-flow
+loadtest-full-flow: ## Run full payout flow load test
+	docker run --rm --network host $(K6_URL) -v $(PWD)/loadtests:/loadtests $(K6_IMAGE) run /loadtests/scripts/full-flow.js
+
+.PHONY: loadtest-rate-limit
+loadtest-rate-limit: ## Run rate limiter stress test
+	docker run --rm --network host $(K6_URL) -v $(PWD)/loadtests:/loadtests $(K6_IMAGE) run /loadtests/scripts/rate-limit-stress.js
+
+.PHONY: loadtest-all
+loadtest-all: loadtest-create loadtest-full-flow loadtest-rate-limit ## Run all load tests
