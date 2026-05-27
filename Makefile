@@ -236,22 +236,22 @@ clean: ## Clean build artifacts
 
 # Observability
 .PHONY: observability-up
-observability-up: ## Start Prometheus and Grafana
-	docker compose -p $(COMPOSE_PROJECT) up -d prometheus grafana
-	@echo "Prometheus: http://localhost:9090"
+observability-up: ## Start VictoriaMetrics and Grafana
+	docker compose -p $(COMPOSE_PROJECT) up -d victoriametrics vmagent grafana
+	@echo "VictoriaMetrics: http://localhost:8428"
 	@echo "Grafana: http://localhost:3000 (admin/admin)"
 
 .PHONY: observability-down
-observability-down: ## Stop Prometheus and Grafana
-	docker compose -p $(COMPOSE_PROJECT) stop prometheus grafana
+observability-down: ## Stop VictoriaMetrics and Grafana
+	docker compose -p $(COMPOSE_PROJECT) stop victoriametrics vmagent grafana
 
 .PHONY: grafana-open
 grafana-open: ## Open Grafana in browser
 	open http://localhost:3000
 
-.PHONY: prometheus-open
-prometheus-open: ## Open Prometheus in browser
-	open http://localhost:9090
+.PHONY: vm-open
+vm-open: ## Open VictoriaMetrics in browser
+	open http://localhost:8428
 
 # Demo
 .PHONY: demo

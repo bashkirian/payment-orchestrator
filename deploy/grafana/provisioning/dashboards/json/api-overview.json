@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -91,7 +91,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "histogram_quantile(0.50, rate(api_http_request_duration_seconds_bucket[5m])) * 1000",
           "legendFormat": "p50",
@@ -100,7 +100,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "histogram_quantile(0.95, rate(api_http_request_duration_seconds_bucket[5m])) * 1000",
           "legendFormat": "p95",
@@ -109,7 +109,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "histogram_quantile(0.99, rate(api_http_request_duration_seconds_bucket[5m])) * 1000",
           "legendFormat": "p99",
@@ -122,7 +122,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -198,7 +198,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(rate(api_http_requests_total[5m])) by (method, path)",
           "legendFormat": "{{method}} {{path}}",
@@ -211,7 +211,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -318,7 +318,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "increase(api_http_requests_total[1m])",
           "legendFormat": "{{status}}",
@@ -331,7 +331,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -407,7 +407,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "rate(api_ratelimit_requests_total{result=\"allowed\"}[5m])",
           "legendFormat": "Allowed",
@@ -416,7 +416,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "rate(api_ratelimit_requests_total{result=\"rejected\"}[5m])",
           "legendFormat": "Rejected (429)",
@@ -429,7 +429,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -473,7 +473,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "api_ratelimit_bucket_refills_total",
           "refId": "A"
@@ -485,7 +485,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -529,7 +529,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(api_http_requests_in_flight)",
           "refId": "A"
@@ -541,7 +541,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -585,7 +585,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(rate(api_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(api_http_requests_total[5m])) * 100",
           "refId": "A"

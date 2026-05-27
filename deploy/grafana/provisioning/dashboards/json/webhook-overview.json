@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -91,7 +91,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "histogram_quantile(0.50, rate(webhook_http_request_duration_seconds_bucket[5m])) * 1000",
           "legendFormat": "p50",
@@ -100,7 +100,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "histogram_quantile(0.95, rate(webhook_http_request_duration_seconds_bucket[5m])) * 1000",
           "legendFormat": "p95",
@@ -109,7 +109,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "histogram_quantile(0.99, rate(webhook_http_request_duration_seconds_bucket[5m])) * 1000",
           "legendFormat": "p99",
@@ -122,7 +122,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -198,7 +198,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(rate(webhook_http_requests_total[5m])) by (method, path)",
           "legendFormat": "{{method}} {{path}}",
@@ -211,7 +211,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -287,7 +287,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "increase(webhook_http_requests_total[1m])",
           "legendFormat": "{{status}}",
@@ -300,7 +300,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -344,7 +344,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(increase(webhook_http_requests_total{path=\"/v1/webhooks/stripe\"}[1h]))",
           "refId": "A"
@@ -356,7 +356,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -400,7 +400,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(webhook_http_requests_in_flight)",
           "refId": "A"
@@ -412,7 +412,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -456,7 +456,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(rate(webhook_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(webhook_http_requests_total[5m])) * 100",
           "refId": "A"
@@ -468,7 +468,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -512,7 +512,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(rate(webhook_http_requests_total{status=\"200\"}[5m]))",
           "refId": "A"

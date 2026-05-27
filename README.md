@@ -67,10 +67,10 @@ A payment orchestrator service that routes payouts through multiple providers (S
                                     │  │  (payouts)  │  │(rate limit) │  │     :3000           │  │
                                     │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
                                     │                                                             │
-                                    │  ┌─────────────┐                                            │
-                                    │  │ Prometheus  │◄──── scrapes /metrics from all services    │
-                                    │  │   :9090     │                                            │
-                                    │  └─────────────┘                                            │
+                                    │  ┌─────────────────────────────┐                            │
+                                    │  │     VictoriaMetrics         │◄── metrics + logs          │
+                                    │  │        :8428                │                            │
+                                    │  └─────────────────────────────┘                            │
                                     └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -81,7 +81,7 @@ A payment orchestrator service that routes payouts through multiple providers (S
 - **Routing algorithms** - Priority, Weighted, and Success-based routing
 - **Idempotent API** - Safe request retries with idempotency keys
 - **Rate limiting** - Redis-backed token bucket rate limiter
-- **Observability** - Prometheus metrics + Grafana dashboards
+- **Observability** - VictoriaMetrics metrics/logs + Grafana dashboards
 
 ## Quick Start
 

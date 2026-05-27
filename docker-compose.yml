@@ -24,19 +24,33 @@ services:
     networks:
       - fintech_local_net
 
-  prometheus:
-    image: prom/prometheus:v2.54.1
-    container_name: fintech-prometheus
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:latest
+    container_name: fintech-victoriametrics
     restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "8428:8428"
     volumes:
-      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
+      - victoriametrics_data:/victoria-metrics-data
     command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.enable-lifecycle'
+      - '--storageDataPath=/victoria-metrics-data'
+      - '--retentionPeriod=30d'
+      - '--httpListenAddr=:8428'
+    networks:
+      - fintech_local_net
+
+  vmagent:
+    image: victoriametrics/vmagent:latest
+    container_name: fintech-vmagent
+    restart: unless-stopped
+    volumes:
+      - ./deploy/vmagent/prometheus.yml:/etc/vmagent/prometheus.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      - '--promscrape.config=/etc/vmagent/prometheus.yml'
+      - '--remoteWrite.url=http://victoriametrics:8428/api/v1/write'
+    depends_on:
+      - victoriametrics
     networks:
       - fintech_local_net
 
@@ -54,7 +68,7 @@ services:
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
     depends_on:
-      - prometheus
+      - victoriametrics
     networks:
       - fintech_local_net
 
@@ -108,8 +122,8 @@ volumes:
     name: fintech_postgres_data
   redis_data:
     name: fintech_redis_data
-  prometheus_data:
-    name: fintech_prometheus_data
+  victoriametrics_data:
+    name: fintech_victoriametrics_data
   grafana_data:
     name: fintech_grafana_data
 
