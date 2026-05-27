@@ -236,14 +236,15 @@ clean: ## Clean build artifacts
 
 # Observability
 .PHONY: observability-up
-observability-up: ## Start VictoriaMetrics and Grafana
-	docker compose -p $(COMPOSE_PROJECT) up -d victoriametrics vmagent grafana
+observability-up: ## Start VictoriaMetrics, VictoriaLogs and Grafana
+	docker compose -p $(COMPOSE_PROJECT) up -d victoriametrics victorialogs vmagent vector grafana
 	@echo "VictoriaMetrics: http://localhost:8428"
+	@echo "VictoriaLogs: http://localhost:9428"
 	@echo "Grafana: http://localhost:3000 (admin/admin)"
 
 .PHONY: observability-down
-observability-down: ## Stop VictoriaMetrics and Grafana
-	docker compose -p $(COMPOSE_PROJECT) stop victoriametrics vmagent grafana
+observability-down: ## Stop observability stack
+	docker compose -p $(COMPOSE_PROJECT) stop victoriametrics victorialogs vmagent vector grafana
 
 .PHONY: grafana-open
 grafana-open: ## Open Grafana in browser
@@ -252,6 +253,10 @@ grafana-open: ## Open Grafana in browser
 .PHONY: vm-open
 vm-open: ## Open VictoriaMetrics in browser
 	open http://localhost:8428
+
+.PHONY: vlogs-open
+vlogs-open: ## Open VictoriaLogs in browser
+	open http://localhost:9428
 
 # Demo
 .PHONY: demo

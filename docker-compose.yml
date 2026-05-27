@@ -39,6 +39,21 @@ services:
     networks:
       - fintech_local_net
 
+  victorialogs:
+    image: victoriametrics/victoria-logs:latest
+    container_name: fintech-victorialogs
+    restart: unless-stopped
+    ports:
+      - "9428:9428"
+    volumes:
+      - victorialogs_data:/victoria-logs-data
+    command:
+      - '--storageDataPath=/victoria-logs-data'
+      - '--retentionPeriod=30d'
+      - '--httpListenAddr=:9428'
+    networks:
+      - fintech_local_net
+
   vmagent:
     image: victoriametrics/vmagent:latest
     container_name: fintech-vmagent
@@ -51,6 +66,18 @@ services:
       - '--remoteWrite.url=http://victoriametrics:8428/api/v1/write'
     depends_on:
       - victoriametrics
+    networks:
+      - fintech_local_net
+
+  vector:
+    image: timberio/vector:latest-alpine
+    container_name: fintech-vector
+    restart: unless-stopped
+    volumes:
+      - ./deploy/vector/vector.toml:/etc/vector/vector.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - victorialogs
     networks:
       - fintech_local_net
 
@@ -124,6 +151,8 @@ volumes:
     name: fintech_redis_data
   victoriametrics_data:
     name: fintech_victoriametrics_data
+  victorialogs_data:
+    name: fintech_victorialogs_data
   grafana_data:
     name: fintech_grafana_data
 

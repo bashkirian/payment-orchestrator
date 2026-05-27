@@ -1,0 +1,23 @@
+# Vector config to collect Docker logs and send to VictoriaLogs
+
+[sources.docker_logs]
+type = "docker_logs"
+docker_host = "/var/run/docker.sock"
+
+[transforms.parse_json]
+type = "remap"
+inputs = ["docker_logs"]
+source = '''
+. = parse_json!(.message)
+.service = .container_name
+'''
+
+[sinks.victorialogs]
+type = "http"
+inputs = ["parse_json"]
+uri = "http://victorialogs:9428/insert/jsonline"
+encoding.codec = "json"
+method = "post"
+
+[sinks.victorialogs.request]
+headers = { "Content-Type" = "application/stream+json" }

@@ -7,3 +7,10 @@ datasources:
     uid: victoriametrics
     isDefault: true
     editable: false
+
+  - name: VictoriaLogs
+    type: victorialogs-datasource
+    access: proxy
+    url: http://victorialogs:9428
+    uid: victorialogs
+    editable: false
