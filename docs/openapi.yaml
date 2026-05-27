@@ -1,0 +1,297 @@
+openapi: 3.0.3
+info:
+  title: Payment Orchestrator API
+  description: |
+    A payment orchestrator service that routes payouts through multiple providers
+    with automatic fallback support.
+
+    ## Features
+    - Multi-provider routing (Stripe, mock providers)
+    - Automatic fallback on provider failure
+    - Idempotent payout creation
+    - Rate limiting (Redis token bucket)
+
+    ## Rails
+    - `card` - Card payments via Stripe or mock providers
+    - `crypto` - Crypto payments via simulated provider
+  version: 1.0.0
+  contact:
+    name: API Support
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Payouts
+    description: Payout operations
+
+paths:
+  /v1/payouts:
+    post:
+      tags:
+        - Payouts
+      summary: Create a payout
+      description: |
+        Creates a new payout and routes it through the configured providers.
+        The request is idempotent - sending the same request with the same
+        Idempotency-Key will return the existing payout.
+
+        ## Routing
+        The orchestrator selects providers based on the configured algorithm:
+        - **Priority**: Providers ordered by config
+        - **Weighted**: Random selection by weight
+        - **SuccessBased**: Highest success rate first
+
+        ## Fallback
+        If the primary provider fails with a retryable error, the orchestrator
+        automatically tries the next available provider.
+      operationId: createPayout
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: |
+            Unique key for idempotent requests. Use UUID v6 for best results
+            (lexicographically sortable).
+          schema:
+            type: string
+            format: uuid
+            example: "1e5f3b2a-9c4d-4e8a-8b7c-6d5e4f3a2b1c"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePayoutRequest'
+            examples:
+              card_payment:
+                summary: Card payout
+                value:
+                  amount: 1000
+                  currency: USD
+                  rail: card
+              crypto_payment:
+                summary: Crypto payout
+                value:
+                  amount: 5000
+                  currency: EUR
+                  rail: crypto
+      responses:
+        '202':
+          description: Payout accepted and processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePayoutResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "invalid request: amount must be positive"
+        '409':
+          description: Idempotency key conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "idempotency key already used with different request"
+        '429':
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds to wait before retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "rate limit exceeded"
+                retry_after: 1
+
+  /v1/payouts/{id}:
+    get:
+      tags:
+        - Payouts
+      summary: Get payout by ID
+      description: Retrieves the current state of a payout including provider details.
+      operationId: getPayout
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payout ID (UUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Payout details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '404':
+          description: Payout not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "payout not found"
+
+  /v1/payouts/{id}/cancel:
+    post:
+      tags:
+        - Payouts
+      summary: Cancel a payout
+      description: |
+        Cancels a pending payout. Only payouts in `pending` state can be cancelled.
+        Once sent to the provider, cancellation is no longer possible.
+      operationId: cancelPayout
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payout ID (UUID)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Payout cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '400':
+          description: Cannot cancel payout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "cannot cancel payout in state 'sent'"
+        '404':
+          description: Payout not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the API service.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+components:
+  schemas:
+    CreatePayoutRequest:
+      type: object
+      required:
+        - amount
+        - currency
+        - rail
+      properties:
+        amount:
+          type: integer
+          description: Amount in cents (smallest currency unit)
+          minimum: 1
+          example: 1000
+        currency:
+          type: string
+          description: ISO 4217 currency code
+          enum: [USD, EUR, GBP]
+          example: USD
+        rail:
+          type: string
+          description: Payment rail/method
+          enum: [card, crypto]
+          example: card
+
+    CreatePayoutResponse:
+      type: object
+      properties:
+        payout_id:
+          type: string
+          format: uuid
+          description: Unique identifier for the created payout
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    Payout:
+      type: object
+      properties:
+        payout_id:
+          type: string
+          format: uuid
+          description: Unique identifier for the payout
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        state:
+          type: string
+          description: Current state of the payout
+          enum: [pending, sent, succeeded, failed, cancelled]
+          example: pending
+        amount:
+          type: integer
+          description: Amount in cents
+          example: 1000
+        currency:
+          type: string
+          description: ISO 4217 currency code
+          example: USD
+        rail:
+          type: string
+          description: Payment rail/method
+          example: card
+        provider:
+          type: string
+          nullable: true
+          description: Provider that handled the payout
+          example: stripe
+        external_id:
+          type: string
+          nullable: true
+          description: Provider's reference ID (e.g., Stripe PaymentIntent ID)
+          example: pi_3abc123xyz
+        created_at:
+          type: string
+          format: date-time
+          description: When the payout was created
+          example: "2024-01-15T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: When the payout was last updated
+          example: "2024-01-15T10:30:05Z"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "invalid request"
+        retry_after:
+          type: integer
+          description: Seconds to wait before retry (only for rate limiting)
+          example: 1
