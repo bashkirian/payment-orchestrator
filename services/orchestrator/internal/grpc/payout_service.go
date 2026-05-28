@@ -109,7 +109,19 @@ func (s *PayoutServiceServer) CreatePayout(
 	case txErr == nil:
 		// Happy path: new payout created — attempt to send via orchestrator.
 		payout := result.newPayout
+		s.log.Info("CreatePayout: payout created in DB, sending to orchestrator",
+			zap.String("request_id", requestID),
+			zap.String("payout_id", payout.ID.String()),
+			zap.String("rail", string(payout.Rail)),
+		)
 		payout = s.sendPayoutWithOrchestrator(ctx, payout)
+		s.log.Info("CreatePayout: completed",
+			zap.String("request_id", requestID),
+			zap.String("payout_id", payout.ID.String()),
+			zap.String("state", string(payout.State)),
+			zap.String("provider", string(payout.Provider)),
+			zap.Stringp("external_id", payout.ExternalID),
+		)
 		return &orchestratorv1.CreatePayoutResponse{
 			PayoutId: payout.ID.String(),
 			Status:   string(payout.State),
@@ -138,6 +150,12 @@ func (s *PayoutServiceServer) CreatePayout(
 
 // sendPayoutWithOrchestrator uses the orchestrator to send the payout with fallback support.
 func (s *PayoutServiceServer) sendPayoutWithOrchestrator(ctx context.Context, payout domain.Payout) domain.Payout {
+	s.log.Info("sendPayoutWithOrchestrator: starting",
+		zap.String("payout_id", payout.ID.String()),
+		zap.String("rail", string(payout.Rail)),
+		zap.String("state", string(payout.State)),
+	)
+
 	if s.orchestrator == nil {
 		s.log.Error("orchestrator not configured", zap.String("payout_id", payout.ID.String()))
 		updated, updateErr := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
@@ -152,6 +170,11 @@ func (s *PayoutServiceServer) sendPayoutWithOrchestrator(ctx context.Context, pa
 	result := s.orchestrator.SendPayoutWithFallback(ctx, payout)
 
 	if result.Success {
+		s.log.Info("sendPayoutWithOrchestrator: marking payout as sent",
+			zap.String("payout_id", payout.ID.String()),
+			zap.String("provider", string(result.UsedProvider)),
+			zap.String("external_id", result.ExternalID),
+		)
 		updated, err := s.payoutRepo.UpdatePayoutState(ctx, payout.ID, domain.UpdatePayoutParams{
 			State:      domain.PayoutStateSent,
 			ExternalID: &result.ExternalID,
@@ -164,6 +187,10 @@ func (s *PayoutServiceServer) sendPayoutWithOrchestrator(ctx context.Context, pa
 			)
 			return payout
 		}
+		s.log.Info("sendPayoutWithOrchestrator: payout state updated to sent",
+			zap.String("payout_id", updated.ID.String()),
+			zap.String("state", string(updated.State)),
+		)
 		return updated
 	}
 
@@ -187,6 +214,10 @@ func (s *PayoutServiceServer) sendPayoutWithOrchestrator(ctx context.Context, pa
 		s.log.Error("failed to mark payout as failed", zap.String("payout_id", payout.ID.String()), zap.Error(err))
 		return payout
 	}
+	s.log.Info("sendPayoutWithOrchestrator: payout state updated to failed",
+		zap.String("payout_id", updated.ID.String()),
+		zap.String("state", string(updated.State)),
+	)
 	return updated
 }
 

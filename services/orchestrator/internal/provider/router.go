@@ -4,10 +4,15 @@ import (
 	"math/rand"
 
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
+	"go.uber.org/zap"
 )
 
 // RoutingAlgorithm defines how to select among multiple providers for a rail.
 type RoutingAlgorithm string
+
+func (a RoutingAlgorithm) String() string {
+	return string(a)
+}
 
 const (
 	// RoutingPriority returns providers in config order (first = highest priority).
@@ -25,15 +30,17 @@ const (
 type Router struct {
 	registry       *Registry
 	successTracker *SuccessTracker
-	minSamples     int // Minimum transactions before using success rate data
+	minSamples     int          // Minimum transactions before using success rate data
+	log            *zap.Logger  // Logger for routing decisions
 }
 
 // NewRouter creates a new Router with the given registry and success tracker.
-func NewRouter(registry *Registry, tracker *SuccessTracker, minSamples int) *Router {
+func NewRouter(registry *Registry, tracker *SuccessTracker, minSamples int, log *zap.Logger) *Router {
 	return &Router{
 		registry:       registry,
 		successTracker: tracker,
 		minSamples:     minSamples,
+		log:            log,
 	}
 }
 
@@ -42,23 +49,40 @@ func NewRouter(registry *Registry, tracker *SuccessTracker, minSamples int) *Rou
 func (r *Router) SelectProviders(rail domain.Rail, algo RoutingAlgorithm) ([]ProviderWithMeta, error) {
 	providers := r.registry.GetProviders(rail)
 	if len(providers) == 0 {
+		r.log.Warn("SelectProviders: no providers for rail",
+			zap.String("rail", string(rail)),
+		)
 		return nil, ErrNoProviders
 	}
 
+	r.log.Info("SelectProviders: selecting providers",
+		zap.String("rail", string(rail)),
+		zap.String("algorithm", string(algo)),
+		zap.Int("available_providers", len(providers)),
+	)
+
+	var result []ProviderWithMeta
 	switch algo {
 	case RoutingWeighted:
-		return r.selectByWeight(providers), nil
+		result = r.selectByWeight(rail, providers)
 	case RoutingSuccessBased:
-		return r.selectBySuccessRate(rail, providers), nil
+		result = r.selectBySuccessRate(rail, providers)
 	default:
 		// RoutingPriority - return as-is (config order)
-		return providers, nil
+		result = providers
 	}
+
+	r.log.Info("SelectProviders: providers ordered",
+		zap.String("rail", string(rail)),
+		zap.String("algorithm", string(algo)),
+		zap.Strings("ordered_providers", providerNamesFromMeta(result)),
+	)
+	return result, nil
 }
 
 // selectByWeight randomly selects a provider based on weight, puts it first.
 // Providers without weight share the remaining percentage equally.
-func (r *Router) selectByWeight(providers []ProviderWithMeta) []ProviderWithMeta {
+func (r *Router) selectByWeight(rail domain.Rail, providers []ProviderWithMeta) []ProviderWithMeta {
 	if len(providers) == 0 {
 		return providers
 	}
@@ -73,6 +97,14 @@ func (r *Router) selectByWeight(providers []ProviderWithMeta) []ProviderWithMeta
 	}
 
 	idx := weightedRandomIndex(weights, totalWeight)
+
+	r.log.Info("selectByWeight: weighted selection",
+		zap.String("rail", string(rail)),
+		zap.Int("selected_index", idx),
+		zap.String("selected_provider", string(providers[idx].Meta.Provider)),
+		zap.Ints("weights", weights),
+		zap.Int("total_weight", totalWeight),
+	)
 
 	// Move selected provider to front
 	result := make([]ProviderWithMeta, len(providers))
@@ -179,6 +211,28 @@ func (r *Router) selectBySuccessRate(rail domain.Rail, providers []ProviderWithM
 	result := make([]ProviderWithMeta, len(providers))
 	copy(result, providers)
 
+	// Log current stats for each provider
+	for _, p := range providers {
+		succ, fail, ok := r.successTracker.GetStats(string(rail), string(p.Meta.Provider))
+		if ok {
+			rate := r.successTracker.GetSuccessRate(string(rail), string(p.Meta.Provider))
+			r.log.Info("selectBySuccessRate: provider stats",
+				zap.String("rail", string(rail)),
+				zap.String("provider", string(p.Meta.Provider)),
+				zap.Int64("successes", succ),
+				zap.Int64("failures", fail),
+				zap.Float64("success_rate", rate),
+				zap.Bool("has_enough_samples", (succ+fail) >= int64(r.minSamples)),
+			)
+		} else {
+			r.log.Info("selectBySuccessRate: provider stats",
+				zap.String("rail", string(rail)),
+				zap.String("provider", string(p.Meta.Provider)),
+				zap.Bool("has_stats", false),
+			)
+		}
+	}
+
 	// Sort by success rate (descending), with providers having enough samples first
 	// Use stable sort to preserve order for providers without enough samples
 	for i := 0; i < len(result)-1; i++ {
@@ -210,6 +264,11 @@ func (r *Router) selectBySuccessRate(rail domain.Rail, providers []ProviderWithM
 			// If both don't have enough samples, keep original order (do nothing)
 		}
 	}
+
+	r.log.Info("selectBySuccessRate: providers ordered by success rate",
+		zap.String("rail", string(rail)),
+		zap.Strings("ordered_providers", providerNamesFromMeta(result)),
+	)
 
 	return result
 }

@@ -121,7 +121,7 @@ func run(cfgFile string) error {
 	if minSamples == 0 {
 		minSamples = 10 // default
 	}
-	router := provider.NewRouter(registry, successTracker, minSamples)
+	router := provider.NewRouter(registry, successTracker, minSamples, log)
 	routingAlgo := provider.RoutingPriority
 	orchestrator := provider.NewOrchestrator(registry, router, successTracker, log, routingAlgo)
 
