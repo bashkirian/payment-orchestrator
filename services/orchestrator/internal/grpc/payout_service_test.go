@@ -130,7 +130,7 @@ func newTestServer(t *testing.T, pool *pgxpool.Pool) *payoutTestServer {
 		IsActive: true,
 	})
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	routingAlgo := provider.RoutingPriority
 	orch := provider.NewOrchestrator(reg, router, tracker, log, routingAlgo)

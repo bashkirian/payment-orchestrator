@@ -30,8 +30,8 @@ const (
 type Router struct {
 	registry       *Registry
 	successTracker *SuccessTracker
-	minSamples     int          // Minimum transactions before using success rate data
-	log            *zap.Logger  // Logger for routing decisions
+	minSamples     int         // Minimum transactions before using success rate data
+	log            *zap.Logger // Logger for routing decisions
 }
 
 // NewRouter creates a new Router with the given registry and success tracker.
