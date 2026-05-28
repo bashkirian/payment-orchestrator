@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	stripe "github.com/stripe/stripe-go/v82"
+	"github.com/stripe/stripe-go/v82/webhook"
 	"go.uber.org/zap"
 
 	orchestratorv1 "github.com/bashkirian/fintech-project/libs/genproto/orchestrator/v1"
@@ -68,7 +68,9 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Verify the webhook signature and parse the event
-	event, err := stripe.ConstructEvent(payload, signature, h.webhookSecret)
+	event, err := webhook.ConstructEventWithOptions(payload, signature, h.webhookSecret, webhook.ConstructEventOptions{
+		IgnoreAPIVersionMismatch: true,
+	})
 	if err != nil {
 		h.log.Warn("invalid stripe signature", zap.Error(err))
 		h.writeError(w, http.StatusBadRequest, "invalid signature")

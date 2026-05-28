@@ -5,7 +5,7 @@ CREATE TABLE payouts (
     amount_cents bigint      NOT NULL CHECK (amount_cents > 0),
     currency     text        NOT NULL,
     rail         text        NOT NULL CHECK (rail IN ('card', 'crypto')),
-    provider     text        NOT NULL CHECK (provider IN ('stripe', 'crypto_sim')),
+    provider     text        NOT NULL CHECK (provider IN ('stripe', 'crypto_sim', 'mock_card')),
     external_id  text        NULL UNIQUE,
     created_at   timestamptz NOT NULL DEFAULT now(),
     updated_at   timestamptz NOT NULL DEFAULT now()

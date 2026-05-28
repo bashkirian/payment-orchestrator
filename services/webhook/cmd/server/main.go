@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,11 +23,12 @@ func main() {
 	root := &cobra.Command{
 		Use:           "webhook",
 		SilenceUsage:  true,
-		SilenceErrors: true,
+		SilenceErrors: false,
 	}
 	root.AddCommand(newStartCmd())
 
 	if err := root.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }

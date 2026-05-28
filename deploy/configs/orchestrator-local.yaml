@@ -5,7 +5,7 @@ http_addr: ":8081"
 shutdown_timeout: 10s
 database_url: "postgres://fintech_app:fintech_app_change_me@localhost:5432/fintech?sslmode=disable"
 stripe:
-  api_key: "sk_test_REPLACE_ME"
+  api_key: "sk_test_YOUR_STRIPE_KEY_HERE"
   max_retries: 2
   timeout_seconds: 30
 

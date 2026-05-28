@@ -91,6 +91,7 @@ A payment orchestrator service that routes payouts through multiple providers (S
 - **Routing algorithms** - Priority, Weighted, and Success-based routing
 - **Idempotent API** - Safe request retries with idempotency keys
 - **Rate limiting** - Redis-backed token bucket rate limiter
+- **Webhook processing** - Provider webhook handling with signature verification and deduplication (Stripe implemented, extensible for other providers)
 - **Observability** - VictoriaMetrics metrics/logs + Grafana dashboards
 
 ## Quick Start
@@ -231,4 +232,109 @@ make loadtest-rate-limit  # Rate limiter stress test
 make build    # Build all services
 make test     # Run tests
 make lint     # Run linter
+```
+
+## Architecture Details
+
+### Payout Flow
+
+1. **CreatePayout** request received with `idempotency_key` and `request_hash`
+2. Orchestrator selects providers based on configured routing algorithm
+3. First provider is tried; on failure, fallback to next provider
+4. Payout state transitions: `pending` → `sent` → `completed`/`failed`
+5. Webhooks from providers update payout status via `ApplyProviderUpdate`
+
+### Fallback Behavior
+
+When a provider fails with a **retryable error** (network timeout, 5xx), the orchestrator automatically tries the next provider in the ordered list:
+
+```
+Provider A (fail) → Provider B (fail) → Provider C (success)
+```
+
+**Terminal errors** (card decline, fraud, invalid request) stop fallback immediately - no point trying another provider.
+
+### Error Classification
+
+| Error Type | Retryable | Fallback |
+|------------|-----------|----------|
+| Network timeout | ✅ | Yes |
+| 5xx server error | ✅ | Yes |
+| 429 rate limit | ✅ | Yes |
+| Card declined | ❌ | No |
+| Fraud detected | ❌ | No |
+| Invalid API key | ❌ | No |
+| Invalid request | ❌ | No |
+
+### Idempotency
+
+Every `CreatePayout` requires:
+- `idempotency_key` - Unique request identifier
+- `request_hash` - SHA-256 hash of canonical request body
+
+Behavior:
+- Same key + same hash → Returns existing payout
+- Same key + different hash → `409 AlreadyExists` error
+
+### Webhook Processing
+
+The webhook service handles provider callbacks with:
+- **Signature verification** - Cryptographic validation of webhook signatures
+- **Event deduplication** - Redis-backed SETNX prevents duplicate processing (24h TTL)
+- **Event normalization** - Provider-specific events mapped to domain types
+
+Currently supports **Stripe** with an extensible architecture for adding new providers. To add a new provider:
+1. Implement the `EventParser` interface in `services/webhook/internal/`
+2. Add provider-specific event type mappings
+3. Register the handler in the router
+
+### Webhook Deduplication
+
+Events are deduplicated using Redis SETNX with 24h TTL:
+- Prevents reprocessing the same event multiple times
+- Key format: `webhook:event:{provider}:{event_id}`
+
+## Testing Provider Integration
+
+### Stripe Example
+
+```bash
+# 1. Start Stripe CLI to forward webhooks
+stripe listen --forward-to localhost:8082/v1/webhooks/stripe
+
+# 2. Create a payout
+grpcurl -plaintext -d '{
+  "idempotency_key": "test-'$(date +%s)'",
+  "request_hash": "hash-'$(date +%s)'",
+  "amount": 1500,
+  "currency": "usd",
+  "rail": "card"
+}' localhost:50051 orchestrator.v1.PayoutService/CreatePayout
+
+# 3. Check status (should be "sent" then "completed" after webhook)
+grpcurl -plaintext -d '{"payout_id": "<payout_id>"}' \
+  localhost:50051 orchestrator.v1.PayoutService/GetPayout
+```
+
+## Testing Fallback
+
+To test fallback behavior, configure an invalid Stripe API key in `deploy/configs/orchestrator-local.yaml`:
+
+```yaml
+stripe:
+  api_key: "sk_test_invalid"  # Invalid key triggers 401 error
+```
+
+Then create a payout - it will fail on Stripe and fall back to `mock_card`:
+
+```bash
+grpcurl -plaintext -d '{
+  "idempotency_key": "failover-test",
+  "request_hash": "hash",
+  "amount": 5000,
+  "currency": "usd",
+  "rail": "card"
+}' localhost:50051 orchestrator.v1.PayoutService/CreatePayout
+
+# Response will show provider: "mock_card"
 ```
