@@ -103,9 +103,22 @@ run-api: ## Run API service
 api-up: ## Start API and its local dependencies in Docker Compose
 	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) up -d --wait postgres redis api
 
+.PHONY: api-down
+api-down: ## Stop API containers
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) stop api
+
 .PHONY: api-logs
 api-logs: ## Show logs for API and its dependencies
 	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) logs -f api postgres redis
+
+.PHONY: services-up
+services-up: ## Start all services in Docker (API + observability)
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) up -d --wait
+	@echo "All services running. Grafana: http://localhost:3000"
+
+.PHONY: services-down
+services-down: ## Stop all Docker services
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) down
 
 .PHONY: run-orchestrator
 run-orchestrator: ## Run Orchestrator service
