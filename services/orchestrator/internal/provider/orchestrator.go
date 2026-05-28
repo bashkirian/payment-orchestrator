@@ -53,6 +53,14 @@ func (o *Orchestrator) SendPayoutWithFallback(
 		TriedProviders: make([]domain.Provider, 0),
 	}
 
+	o.log.Info("SendPayoutWithFallback: starting payout routing",
+		zap.String("payout_id", payout.ID.String()),
+		zap.String("rail", string(payout.Rail)),
+		zap.Int64("amount_cents", payout.AmountCents),
+		zap.String("currency", payout.Currency),
+		zap.String("routing_algorithm", o.routingAlgo.String()),
+	)
+
 	providers, err := o.router.SelectProviders(payout.Rail, o.routingAlgo)
 	if err != nil {
 		o.log.Error("no providers available for rail",
@@ -62,8 +70,14 @@ func (o *Orchestrator) SendPayoutWithFallback(
 		return result
 	}
 
+	o.log.Info("providers selected for payout",
+		zap.String("payout_id", payout.ID.String()),
+		zap.Strings("providers", providerNamesFromMeta(providers)),
+		zap.Int("count", len(providers)),
+	)
+
 	var lastErr error
-	for _, p := range providers {
+	for i, p := range providers {
 		providerName := p.Meta.Provider
 		result.TriedProviders = append(result.TriedProviders, providerName)
 
@@ -71,6 +85,8 @@ func (o *Orchestrator) SendPayoutWithFallback(
 			zap.String("payout_id", payout.ID.String()),
 			zap.String("provider", string(providerName)),
 			zap.String("rail", string(payout.Rail)),
+			zap.Int("attempt", i+1),
+			zap.Int("total_providers", len(providers)),
 		)
 
 		extID, err := p.Client.SendPayout(ctx, payout)
@@ -81,6 +97,7 @@ func (o *Orchestrator) SendPayoutWithFallback(
 				zap.String("payout_id", payout.ID.String()),
 				zap.String("provider", string(providerName)),
 				zap.String("external_id", extID),
+				zap.Int("attempts", i+1),
 			)
 			result.ExternalID = extID
 			result.UsedProvider = providerName
@@ -107,6 +124,15 @@ func (o *Orchestrator) SendPayoutWithFallback(
 			)
 			break
 		}
+
+		// Log fallback decision
+		if i < len(providers)-1 {
+			o.log.Info("falling back to next provider",
+				zap.String("payout_id", payout.ID.String()),
+				zap.String("failed_provider", string(providerName)),
+				zap.String("next_provider", string(providers[i+1].Meta.Provider)),
+			)
+		}
 	}
 
 	o.log.Error("all providers failed",
@@ -131,12 +157,36 @@ func (o *Orchestrator) isRetryable(err error) bool {
 
 // CancelPayout cancels a payout with the provider that was used to create it.
 func (o *Orchestrator) CancelPayout(ctx context.Context, payout domain.Payout) error {
+	o.log.Info("CancelPayout: starting cancellation",
+		zap.String("payout_id", payout.ID.String()),
+		zap.String("provider", string(payout.Provider)),
+		zap.Stringp("external_id", payout.ExternalID),
+	)
+
 	client, err := o.registry.GetByProvider(payout.Provider)
 	if err != nil {
+		o.log.Error("CancelPayout: provider not found",
+			zap.String("payout_id", payout.ID.String()),
+			zap.String("provider", string(payout.Provider)),
+			zap.Error(err),
+		)
 		return err
 	}
 
-	return client.CancelPayout(ctx, payout)
+	if err := client.CancelPayout(ctx, payout); err != nil {
+		o.log.Error("CancelPayout: provider cancel failed",
+			zap.String("payout_id", payout.ID.String()),
+			zap.String("provider", string(payout.Provider)),
+			zap.Error(err),
+		)
+		return err
+	}
+
+	o.log.Info("CancelPayout: cancellation successful",
+		zap.String("payout_id", payout.ID.String()),
+		zap.String("provider", string(payout.Provider)),
+	)
+	return nil
 }
 
 // providerNames converts a slice of providers to strings for logging.
@@ -144,6 +194,15 @@ func providerNames(providers []domain.Provider) []string {
 	names := make([]string, len(providers))
 	for i, p := range providers {
 		names[i] = string(p)
+	}
+	return names
+}
+
+// providerNamesFromMeta extracts provider names from ProviderWithMeta slice.
+func providerNamesFromMeta(providers []ProviderWithMeta) []string {
+	names := make([]string, len(providers))
+	for i, p := range providers {
+		names[i] = string(p.Meta.Provider)
 	}
 	return names
 }

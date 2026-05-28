@@ -62,16 +62,26 @@ A payment orchestrator service that routes payouts through multiple providers (S
                                     ┌─────────────────────────────────────────────────────────────┐
                                     │                    INFRASTRUCTURE                            │
                                     │                                                             │
-                                    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-                                    │  │  PostgreSQL │  │    Redis    │  │      Grafana        │  │
-                                    │  │  (payouts)  │  │(rate limit) │  │     :3000           │  │
-                                    │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+                                    │  ┌─────────────┐  ┌─────────────┐                            │
+                                    │  │  PostgreSQL │  │    Redis    │                            │
+                                    │  │  (payouts)  │  │(rate limit) │                            │
+                                    │  └─────────────┘  └─────────────┘                            │
                                     │                                                             │
-                                    │  ┌─────────────┐                                            │
-                                    │  │ Prometheus  │◄──── scrapes /metrics from all services    │
-                                    │  │   :9090     │                                            │
-                                    │  └─────────────┘                                            │
-                                    └─────────────────────────────────────────────────────────────┘
+                                    │  ┌─────────────────────────────────────────────────────────┐│
+                                    │  │                  OBSERVABILITY                          ││
+                                    │  │                                                         ││
+                                    │  │  ┌───────────────┐  ┌───────────────┐  ┌─────────────┐  ││
+                                    │  │  │VictoriaMetrics│  │ VictoriaLogs  │  │   Grafana   │  ││
+                                    │  │  │   :8428       │  │    :9428      │  │   :3000     │  ││
+                                    │  │  │  (metrics)    │  │   (logs)      │  │ (dashboards)│  ││
+                                    │  │  └───────▲───────┘  └───────▲───────┘  └──────▲──────┘  ││
+                                    │  │          │                  │                 │         ││
+                                    │  │  ┌───────┴───────┐  ┌───────┴───────┐          │         ││
+                                    │  │  │   vmagent     │  │    Vector     │          │         ││
+                                    │  │  │(metrics scrape)│ │(log collector)│          │         ││
+                                    │  │  └───────────────┘  └───────────────┘          │         ││
+                                    │  └─────────────────────────────────────────────────│─────────┘│
+                                    └─────────────────────────────────────────────────────┘─────────┘
 ```
 
 ## Features
@@ -81,12 +91,28 @@ A payment orchestrator service that routes payouts through multiple providers (S
 - **Routing algorithms** - Priority, Weighted, and Success-based routing
 - **Idempotent API** - Safe request retries with idempotency keys
 - **Rate limiting** - Redis-backed token bucket rate limiter
-- **Observability** - Prometheus metrics + Grafana dashboards
+- **Observability** - VictoriaMetrics metrics/logs + Grafana dashboards
 
 ## Quick Start
 
 ```bash
-# Start infrastructure (Postgres, Redis)
+# Start all services in Docker (API + Postgres + Redis + Observability)
+make services-up
+
+# Run migrations (first time only)
+make migrate-up
+
+# Services are now running:
+# - API: http://localhost:8080
+# - Grafana: http://localhost:3000 (admin/admin)
+# - VictoriaMetrics: http://localhost:8428
+# - VictoriaLogs: http://localhost:9428
+```
+
+For local development without Docker:
+
+```bash
+# Start just infrastructure
 make up
 
 # Run migrations
@@ -95,7 +121,7 @@ make migrate-up
 # Build services
 make build
 
-# Run orchestrator and API
+# Run orchestrator and API locally
 ./bin/orchestrator start --config deploy/configs/orchestrator-local.yaml &
 ./bin/api &
 ```
@@ -138,12 +164,53 @@ API_RATE_LIMIT_ENABLED=true
 
 ## Observability
 
+The project uses the **VictoriaMetrics ecosystem** for observability:
+
+| Component | Port | Purpose |
+|-----------|------|---------|
+| VictoriaMetrics | 8428 | Metrics storage (Prometheus-compatible) |
+| VictoriaLogs | 9428 | Log storage |
+| vmagent | - | Metrics scraper (scrapes `/metrics` from services) |
+| Vector | - | Log collector (reads Docker container logs) |
+| Grafana | 3000 | Visualization (admin/admin) |
+
+### Starting Observability Stack
+
 ```bash
-# Start Prometheus + Grafana
+# Start all services in Docker (API + dependencies + observability)
+make services-up
+
+# Or start just observability stack
 make observability-up
 
 # Open Grafana
 make grafana-open
+
+# Open VictoriaMetrics UI
+make vm-open
+
+# Open VictoriaLogs UI
+make vlogs-open
+```
+
+### Querying Logs in Grafana
+
+1. Go to **Explore** → Select **VictoriaLogs** datasource
+2. Use LogsQL syntax:
+
+```
+service:fintech-api                    # API logs only
+service:~"fintech-.*"                  # All project services
+service:fintech-api _msg:~"error"      # API logs containing "error"
+```
+
+### Querying Metrics
+
+VictoriaMetrics is compatible with PromQL. In Grafana Explore:
+
+```promql
+rate(api_http_request_duration_seconds_count[5m])  # Request rate
+histogram_quantile(0.95, rate(api_http_request_duration_seconds_bucket[5m]))  # P95 latency
 ```
 
 Pre-built dashboards:

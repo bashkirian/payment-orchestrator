@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
@@ -23,7 +24,7 @@ func TestRouter_SelectProviders_Priority(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	providers, err := router.SelectProviders(domain.RailCard, provider.RoutingPriority)
 	require.NoError(t, err)
@@ -46,7 +47,7 @@ func TestRouter_SelectProviders_Weighted(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	// Run multiple times to verify weighted selection works
 	// Count how many times each provider is selected first
@@ -83,7 +84,7 @@ func TestRouter_SelectProviders_Weighted_RemainderDistribution(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	// Run multiple times to verify remainder distribution
 	stripeFirst := 0
@@ -117,7 +118,7 @@ func TestRouter_SelectProviders_Weighted_NoExplicitWeights(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	// Should be 50/50 distribution
 	stripeFirst := 0
@@ -149,7 +150,7 @@ func TestRouter_SelectProviders_SuccessBased_NoSamples(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10) // min samples = 10
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop()) // min samples = 10
 
 	// No samples yet, should return providers in original order (priority)
 	providers, err := router.SelectProviders(domain.RailCard, provider.RoutingSuccessBased)
@@ -185,7 +186,7 @@ func TestRouter_SelectProviders_SuccessBased_WithSamples(t *testing.T) {
 	}
 	tracker.RecordFailure("card", "mock_card")
 
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	providers, err := router.SelectProviders(domain.RailCard, provider.RoutingSuccessBased)
 	require.NoError(t, err)
@@ -213,7 +214,7 @@ func TestRouter_SelectProviders_SuccessBased_InsufficientSamples(t *testing.T) {
 		tracker.RecordSuccess("card", "mock_card")
 	}
 
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	// Should fall back to priority order (stripe first)
 	providers, err := router.SelectProviders(domain.RailCard, provider.RoutingSuccessBased)
@@ -224,7 +225,7 @@ func TestRouter_SelectProviders_SuccessBased_InsufficientSamples(t *testing.T) {
 func TestRouter_SelectProviders_NoProviders(t *testing.T) {
 	reg := provider.NewRegistry()
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	_, err := router.SelectProviders(domain.RailCard, provider.RoutingPriority)
 	assert.ErrorIs(t, err, provider.ErrNoProviders)
@@ -238,7 +239,7 @@ func TestRouter_SelectProviders_DefaultAlgorithm(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	// Unknown algorithm should default to priority
 	providers, err := router.SelectProviders(domain.RailCard, provider.RoutingAlgorithm("unknown"))
@@ -259,7 +260,7 @@ func TestRouter_SelectProviders_InactiveProviderSkipped(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	providers, err := router.SelectProviders(domain.RailCard, provider.RoutingPriority)
 	require.NoError(t, err)
@@ -281,7 +282,7 @@ func TestRouter_SelectProviders_Weighted_AllProvidersReturned(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 
 	providers, err := router.SelectProviders(domain.RailCard, provider.RoutingWeighted)
 	require.NoError(t, err)

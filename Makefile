@@ -103,9 +103,22 @@ run-api: ## Run API service
 api-up: ## Start API and its local dependencies in Docker Compose
 	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) up -d --wait postgres redis api
 
+.PHONY: api-down
+api-down: ## Stop API containers
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) stop api
+
 .PHONY: api-logs
 api-logs: ## Show logs for API and its dependencies
 	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) logs -f api postgres redis
+
+.PHONY: services-up
+services-up: ## Start all services in Docker (API + observability)
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) up -d --wait
+	@echo "All services running. Grafana: http://localhost:3000"
+
+.PHONY: services-down
+services-down: ## Stop all Docker services
+	docker compose -p $(COMPOSE_PROJECT) -f $(COMPOSE_FILE) down
 
 .PHONY: run-orchestrator
 run-orchestrator: ## Run Orchestrator service
@@ -236,22 +249,27 @@ clean: ## Clean build artifacts
 
 # Observability
 .PHONY: observability-up
-observability-up: ## Start Prometheus and Grafana
-	docker compose -p $(COMPOSE_PROJECT) up -d prometheus grafana
-	@echo "Prometheus: http://localhost:9090"
+observability-up: ## Start VictoriaMetrics, VictoriaLogs and Grafana
+	docker compose -p $(COMPOSE_PROJECT) up -d victoriametrics victorialogs vmagent vector grafana
+	@echo "VictoriaMetrics: http://localhost:8428"
+	@echo "VictoriaLogs: http://localhost:9428"
 	@echo "Grafana: http://localhost:3000 (admin/admin)"
 
 .PHONY: observability-down
-observability-down: ## Stop Prometheus and Grafana
-	docker compose -p $(COMPOSE_PROJECT) stop prometheus grafana
+observability-down: ## Stop observability stack
+	docker compose -p $(COMPOSE_PROJECT) stop victoriametrics victorialogs vmagent vector grafana
 
 .PHONY: grafana-open
 grafana-open: ## Open Grafana in browser
 	open http://localhost:3000
 
-.PHONY: prometheus-open
-prometheus-open: ## Open Prometheus in browser
-	open http://localhost:9090
+.PHONY: vm-open
+vm-open: ## Open VictoriaMetrics in browser
+	open http://localhost:8428
+
+.PHONY: vlogs-open
+vlogs-open: ## Open VictoriaLogs in browser
+	open http://localhost:9428
 
 # Demo
 .PHONY: demo

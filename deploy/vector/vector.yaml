@@ -1,0 +1,33 @@
+# Vector config to collect Docker logs and send to VictoriaLogs
+
+api:
+  enabled: true
+  address: 0.0.0.0:8686
+
+sources:
+  docker_logs:
+    type: docker_logs
+    docker_host: /var/run/docker.sock
+
+transforms:
+  format_logs:
+    type: remap
+    inputs:
+      - docker_logs
+    source: |
+      ._msg = .message
+      .service = string!(.container_name)
+      ._stream = "{service=\"" + .service + "\"}"
+      .timestamp = .timestamp
+
+sinks:
+  victorialogs:
+    type: http
+    inputs:
+      - format_logs
+    uri: http://victorialogs:9428/insert/jsonline
+    method: post
+    encoding:
+      codec: json
+    framing:
+      method: newline_delimited

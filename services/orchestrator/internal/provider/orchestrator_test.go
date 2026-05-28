@@ -23,7 +23,7 @@ func TestOrchestrator_SendPayoutWithFallback_Success(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
@@ -64,7 +64,7 @@ func TestOrchestrator_SendPayoutWithFallback_FallbackOnFailure(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
@@ -107,7 +107,7 @@ func TestOrchestrator_SendPayoutWithFallback_TerminalErrorStopsFallback(t *testi
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
@@ -142,7 +142,7 @@ func TestOrchestrator_SendPayoutWithFallback_AllProvidersFail(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
@@ -171,7 +171,7 @@ func TestOrchestrator_SendPayoutWithFallback_AllProvidersFail(t *testing.T) {
 func TestOrchestrator_SendPayoutWithFallback_NoProviders(t *testing.T) {
 	reg := provider.NewRegistry()
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
@@ -196,7 +196,7 @@ func TestOrchestrator_CancelPayout(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
@@ -216,7 +216,7 @@ func TestOrchestrator_CancelPayout(t *testing.T) {
 func TestOrchestrator_CancelPayout_ProviderNotFound(t *testing.T) {
 	reg := provider.NewRegistry()
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 
@@ -248,7 +248,7 @@ func TestOrchestrator_SendPayoutWithFallback_InactiveProviderSkipped(t *testing.
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10)
+	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
 

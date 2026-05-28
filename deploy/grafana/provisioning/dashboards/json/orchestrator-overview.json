@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -91,7 +91,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "histogram_quantile(0.50, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=\"orchestrator.v1.PayoutService\"}[5m])) by (le, grpc_method)) * 1000",
           "legendFormat": "{{grpc_method}} p50",
@@ -100,7 +100,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "histogram_quantile(0.95, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=\"orchestrator.v1.PayoutService\"}[5m])) by (le, grpc_method)) * 1000",
           "legendFormat": "{{grpc_method}} p95",
@@ -113,7 +113,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -189,7 +189,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(rate(grpc_server_handled_total{grpc_service=\"orchestrator.v1.PayoutService\"}[5m])) by (grpc_method)",
           "legendFormat": "{{grpc_method}}",
@@ -202,7 +202,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -250,7 +250,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum by (grpc_code) (grpc_server_handled_total{grpc_service=\"orchestrator.v1.PayoutService\"})",
           "legendFormat": "{{grpc_code}}",
@@ -263,7 +263,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -307,7 +307,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(grpc_server_handled_total{grpc_service=\"orchestrator.v1.PayoutService\", grpc_method=\"CreatePayout\", grpc_code=\"OK\"})",
           "legendFormat": "Total Payouts Created",
@@ -320,7 +320,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -372,7 +372,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(rate(grpc_server_handled_total{grpc_service=\"orchestrator.v1.PayoutService\", grpc_code=\"OK\"}[5m])) / sum(rate(grpc_server_handled_total{grpc_service=\"orchestrator.v1.PayoutService\"}[5m]))",
           "refId": "A"
@@ -384,7 +384,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -460,7 +460,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "victoriametrics"
           },
           "expr": "sum(rate(grpc_server_handled_total{grpc_service=\"orchestrator.v1.PayoutService\"}[5m])) by (grpc_method, grpc_code)",
           "legendFormat": "{{grpc_method}} - {{grpc_code}}",
