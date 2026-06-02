@@ -22,6 +22,9 @@ import (
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
 	mockprovider "github.com/bashkirian/fintech-project/services/orchestrator/internal/provider/mock"
 	stripeprovider "github.com/bashkirian/fintech-project/services/orchestrator/internal/provider/stripe"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/postgres"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/sqlcgen"
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/queue"
 )
 
 func main() {
@@ -123,7 +126,27 @@ func run(cfgFile string) error {
 	}
 	router := provider.NewRouter(registry, successTracker, minSamples, log)
 	routingAlgo := provider.RoutingPriority
-	orchestrator := provider.NewOrchestrator(registry, router, successTracker, log, routingAlgo)
+
+	// Initialize Kafka queue for retries
+	kafkaQueue := queue.NewKafkaQueue(cfg.Kafka, cfg.Retry, log)
+	if err := kafkaQueue.Connect(ctx); err != nil {
+		log.Warn("failed to connect to Kafka; retry queue disabled", zap.Error(err))
+	}
+	defer kafkaQueue.Close()
+
+	// Initialize repository
+	payoutRepo := postgres.NewPayoutRepo(sqlcgen.New(pool))
+
+	orchestrator := provider.NewOrchestrator(
+		registry,
+		router,
+		successTracker,
+		kafkaQueue,
+		payoutRepo,
+		log,
+		routingAlgo,
+		cfg.Retry,
+	)
 
 	grpcSrv := grpcserver.New(log, pool, orchestrator)
 

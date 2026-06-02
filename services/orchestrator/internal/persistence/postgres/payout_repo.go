@@ -72,6 +72,28 @@ func (r *PayoutRepo) UpdatePayoutState(ctx context.Context, id uuid.UUID, params
 	return toDomainPayout(row), nil
 }
 
+func (r *PayoutRepo) UpdatePayoutRetryState(ctx context.Context, id uuid.UUID, params domain.UpdatePayoutRetryParams) (domain.Payout, error) {
+	var provider *string
+	if params.Provider != "" {
+		p := string(params.Provider)
+		provider = &p
+	}
+	row, err := r.q.UpdatePayoutRetryState(ctx, sqlcgen.UpdatePayoutRetryStateParams{
+		ID:                 id,
+		State:              string(params.State),
+		GlobalRetryCount:   int32(params.GlobalRetryCount),
+		ProviderRetryCount: int32(params.ProviderRetryCount),
+		Provider:           provider,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Payout{}, ErrNotFound
+		}
+		return domain.Payout{}, err
+	}
+	return toDomainPayout(row), nil
+}
+
 func (r *PayoutRepo) CancelPayout(ctx context.Context, id uuid.UUID, cancelableStates []domain.PayoutState) (domain.Payout, error) {
 	states := make([]string, len(cancelableStates))
 	for i, s := range cancelableStates {
@@ -148,15 +170,17 @@ func toDomainPayout(p sqlcgen.Payout) domain.Payout {
 		provider = domain.Provider(*p.Provider)
 	}
 	return domain.Payout{
-		ID:          p.ID,
-		State:       domain.PayoutState(p.State),
-		AmountCents: p.AmountCents,
-		Currency:    p.Currency,
-		Rail:        domain.Rail(p.Rail),
-		Provider:    provider,
-		ExternalID:  p.ExternalID,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
+		ID:                 p.ID,
+		State:              domain.PayoutState(p.State),
+		AmountCents:        p.AmountCents,
+		Currency:           p.Currency,
+		Rail:               domain.Rail(p.Rail),
+		Provider:           provider,
+		ExternalID:         p.ExternalID,
+		GlobalRetryCount:   int(p.GlobalRetryCount),
+		ProviderRetryCount: int(p.ProviderRetryCount),
+		CreatedAt:          p.CreatedAt,
+		UpdatedAt:          p.UpdatedAt,
 	}
 }
 

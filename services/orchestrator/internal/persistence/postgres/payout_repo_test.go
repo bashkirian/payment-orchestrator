@@ -114,6 +114,20 @@ func (m *mockQuerier) FindPayoutByExternalID(_ context.Context, externalID *stri
 	return sqlcgen.Payout{}, pgx.ErrNoRows
 }
 
+func (m *mockQuerier) UpdatePayoutRetryState(_ context.Context, arg sqlcgen.UpdatePayoutRetryStateParams) (sqlcgen.Payout, error) {
+	p, ok := m.payouts[arg.ID]
+	if !ok {
+		return sqlcgen.Payout{}, pgx.ErrNoRows
+	}
+	p.State = arg.State
+	p.GlobalRetryCount = arg.GlobalRetryCount
+	p.ProviderRetryCount = arg.ProviderRetryCount
+	p.Provider = arg.Provider
+	p.UpdatedAt = time.Now()
+	m.payouts[arg.ID] = p
+	return p, nil
+}
+
 // --- PayoutRepo tests ---
 
 func TestPayoutRepo_CreatePayout(t *testing.T) {

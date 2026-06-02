@@ -14,6 +14,7 @@ const (
 	PayoutStateQueued     PayoutState = "queued"
 	PayoutStatePending    PayoutState = "pending"
 	PayoutStateProcessing PayoutState = "processing"
+	PayoutStateRetrying   PayoutState = "retrying"   // payout is in retry queue
 	PayoutStateCompleted  PayoutState = "completed"
 	PayoutStateSent       PayoutState = "sent"
 	PayoutStateFailed     PayoutState = "failed"
@@ -43,15 +44,17 @@ type ProviderMeta struct {
 }
 
 type Payout struct {
-	ID          uuid.UUID
-	State       PayoutState
-	AmountCents int64
-	Currency    string
-	Rail        Rail
-	Provider    Provider
-	ExternalID  *string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID               uuid.UUID
+	State            PayoutState
+	AmountCents      int64
+	Currency         string
+	Rail             Rail
+	Provider         Provider
+	ExternalID       *string
+	GlobalRetryCount int       // total retry attempts across all providers
+	ProviderRetryCount int     // retry attempts for current provider
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type IdempotencyKey struct {
@@ -76,10 +79,18 @@ type UpdatePayoutParams struct {
 	Provider   Provider // Set after routing decision
 }
 
+type UpdatePayoutRetryParams struct {
+	State              PayoutState
+	GlobalRetryCount   int
+	ProviderRetryCount int
+	Provider           Provider
+}
+
 type PayoutRepository interface {
 	CreatePayout(ctx context.Context, params CreatePayoutParams) (Payout, error)
 	GetPayout(ctx context.Context, id uuid.UUID) (Payout, error)
 	UpdatePayoutState(ctx context.Context, id uuid.UUID, params UpdatePayoutParams) (Payout, error)
+	UpdatePayoutRetryState(ctx context.Context, id uuid.UUID, params UpdatePayoutRetryParams) (Payout, error)
 	CancelPayout(ctx context.Context, id uuid.UUID, cancelableStates []PayoutState) (Payout, error)
 	FindByExternalID(ctx context.Context, externalID string) (Payout, error)
 }
