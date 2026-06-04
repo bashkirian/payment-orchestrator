@@ -10,10 +10,26 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/config"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/provider/mock"
 )
+
+// testOrchestrator creates an orchestrator for testing without retry queue dependencies.
+func testOrchestrator(reg *provider.Registry, tracker *provider.SuccessTracker, log *zap.Logger, algo provider.RoutingAlgorithm) *provider.Orchestrator {
+	router := provider.NewRouter(reg, tracker, 10, log)
+	return provider.NewOrchestrator(
+		reg,
+		router,
+		tracker,
+		nil, // no publisher for tests
+		nil, // no repo for tests
+		log,
+		algo,
+		config.RetryConfig{},
+	)
+}
 
 func TestOrchestrator_SendPayoutWithFallback_Success(t *testing.T) {
 	reg := provider.NewRegistry()
@@ -23,9 +39,8 @@ func TestOrchestrator_SendPayoutWithFallback_Success(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
+	orch := testOrchestrator(reg, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -64,9 +79,8 @@ func TestOrchestrator_SendPayoutWithFallback_FallbackOnFailure(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
+	orch := testOrchestrator(reg, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -107,9 +121,8 @@ func TestOrchestrator_SendPayoutWithFallback_TerminalErrorStopsFallback(t *testi
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
+	orch := testOrchestrator(reg, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -142,9 +155,8 @@ func TestOrchestrator_SendPayoutWithFallback_AllProvidersFail(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
+	orch := testOrchestrator(reg, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -171,9 +183,8 @@ func TestOrchestrator_SendPayoutWithFallback_AllProvidersFail(t *testing.T) {
 func TestOrchestrator_SendPayoutWithFallback_NoProviders(t *testing.T) {
 	reg := provider.NewRegistry()
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
+	orch := testOrchestrator(reg, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -196,9 +207,8 @@ func TestOrchestrator_CancelPayout(t *testing.T) {
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
+	orch := testOrchestrator(reg, tracker, log, provider.RoutingPriority)
 
 	externalID := "pi_test123"
 	payout := domain.Payout{
@@ -216,9 +226,8 @@ func TestOrchestrator_CancelPayout(t *testing.T) {
 func TestOrchestrator_CancelPayout_ProviderNotFound(t *testing.T) {
 	reg := provider.NewRegistry()
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
+	orch := testOrchestrator(reg, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),
@@ -248,9 +257,8 @@ func TestOrchestrator_SendPayoutWithFallback_InactiveProviderSkipped(t *testing.
 	})
 
 	tracker := provider.NewSuccessTracker()
-	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
-	orch := provider.NewOrchestrator(reg, router, tracker, log, provider.RoutingPriority)
+	orch := testOrchestrator(reg, tracker, log, provider.RoutingPriority)
 
 	payout := domain.Payout{
 		ID:          uuid.New(),

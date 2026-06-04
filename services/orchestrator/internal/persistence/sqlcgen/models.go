@@ -18,13 +18,15 @@ type IdempotencyKey struct {
 }
 
 type Payout struct {
-	ID          uuid.UUID `json:"id"`
-	State       string    `json:"state"`
-	AmountCents int64     `json:"amount_cents"`
-	Currency    string    `json:"currency"`
-	Rail        string    `json:"rail"`
-	Provider    *string   `json:"provider"`
-	ExternalID  *string   `json:"external_id"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID                 uuid.UUID `json:"id"`
+	State              string    `json:"state"`
+	AmountCents        int64     `json:"amount_cents"`
+	Currency           string    `json:"currency"`
+	Rail               string    `json:"rail"`
+	Provider           *string   `json:"provider"`
+	ExternalID         *string   `json:"external_id"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	GlobalRetryCount   int32     `json:"global_retry_count"`
+	ProviderRetryCount int32     `json:"provider_retry_count"`
 }

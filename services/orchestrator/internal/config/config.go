@@ -18,6 +18,8 @@ type Config struct {
 	Stripe          StripeConfig  `yaml:"stripe"`
 	Providers       Providers     `yaml:"providers"`
 	Routing         RoutingConfig `yaml:"routing"`
+	Kafka           KafkaConfig   `yaml:"kafka"`
+	Retry           RetryConfig   `yaml:"retry"`
 }
 
 // StripeConfig holds Stripe-specific tunables.
@@ -45,6 +47,40 @@ type ProviderEntry struct {
 // RoutingConfig holds routing algorithm configuration.
 type RoutingConfig struct {
 	MinSamples int `yaml:"min_samples"` // minimum transactions before using success rate
+}
+
+// KafkaConfig holds Kafka connection configuration.
+type KafkaConfig struct {
+	Brokers      []string `yaml:"brokers"`
+	Topics       Topics   `yaml:"topics"`
+	ConsumerGroup string  `yaml:"consumer_group"`
+}
+
+// Topics holds Kafka topic names.
+type Topics struct {
+	ProviderRetry string `yaml:"provider_retry"`
+	GlobalRetry   string `yaml:"global_retry"`
+	DLQ           string `yaml:"dlq"`
+}
+
+// RetryConfig holds retry policy configuration.
+// Inspired by Hyperswitch's tiered delay approach.
+type RetryConfig struct {
+	Provider RetryPolicy `yaml:"provider"`
+	Global   RetryPolicy `yaml:"global"`
+	Jitter   JitterConfig `yaml:"jitter"`
+}
+
+// RetryPolicy defines retry behavior with tiered delays.
+type RetryPolicy struct {
+	MaxAttempts int           `yaml:"max_attempts"`
+	Delays      []time.Duration `yaml:"delays"` // tiered delays per attempt
+}
+
+// JitterConfig configures random delay to prevent thundering herd.
+type JitterConfig struct {
+	Min        time.Duration `yaml:"min"`
+	MaxPercent int           `yaml:"max_percent"` // add up to X% jitter
 }
 
 func Load(path string) (Config, error) {

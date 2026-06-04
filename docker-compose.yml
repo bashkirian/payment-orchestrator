@@ -128,6 +128,59 @@ services:
     networks:
       - fintech_local_net
 
+  kafka:
+    image: redpandadata/redpanda:latest
+    container_name: fintech-kafka
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --mode
+      - dev
+      - --smp
+      - '1'
+      - --memory
+      - 512M
+      - --overprovisioned
+      - --node-id
+      - '0'
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:9093
+      - --advertise-kafka-addr
+      - PLAINTEXT://kafka:9092,OUTSIDE://localhost:9093
+      - --pandaproxy-addr
+      - PLAINTEXT://0.0.0.0:8082
+      - --advertise-pandaproxy-addr
+      - PLAINTEXT://kafka:8082
+    ports:
+      - "9093:9093"   # Kafka API (external)
+      - "9092:9092"   # Kafka API (internal)
+      - "8081:8081"   # Schema registry
+      - "8082:8082"   # PandaProxy
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep 'Healthy: true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - fintech_local_net
+
+  kafka-init:
+    image: redpandadata/redpanda:latest
+    container_name: fintech-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        rpk topic create payout-retry-provider --partitions 3 --replicas 1 --brokers kafka:9092 || true &&
+        rpk topic create payout-retry-global --partitions 3 --replicas 1 --brokers kafka:9092 || true &&
+        rpk topic create payout-retry-dlq --partitions 1 --replicas 1 --brokers kafka:9092 || true
+      "
+    networks:
+      - fintech_local_net
+
   redis:
     image: redis:7.2-alpine
     container_name: fintech-redis
@@ -159,6 +212,8 @@ volumes:
     name: fintech_victorialogs_data
   grafana_data:
     name: fintech_grafana_data
+  kafka_data:
+    name: fintech_kafka_data
 
 networks:
   fintech_local_net:

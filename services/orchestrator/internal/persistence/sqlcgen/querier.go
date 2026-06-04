@@ -19,6 +19,8 @@ type Querier interface {
 	GetIdempotencyKey(ctx context.Context, key string) (IdempotencyKey, error)
 	GetPayout(ctx context.Context, id uuid.UUID) (Payout, error)
 	TryInsertIdempotencyKey(ctx context.Context, arg TryInsertIdempotencyKeyParams) (IdempotencyKey, error)
+	// Updates payout state and increments retry counters for retry processing.
+	UpdatePayoutRetryState(ctx context.Context, arg UpdatePayoutRetryStateParams) (Payout, error)
 	UpdatePayoutState(ctx context.Context, arg UpdatePayoutStateParams) (Payout, error)
 }
 

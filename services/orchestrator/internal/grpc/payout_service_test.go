@@ -1,17 +1,3 @@
-// payout_service_test.go contains integration tests for the payout gRPC service.
-//
-// These tests use testcontainers to spin up a PostgreSQL container, so Docker must be
-// running and available. Run with: go test -v ./services/orchestrator/internal/grpc/...
-//
-// Test coverage:
-//   - Creating new payouts with fresh idempotency keys
-//   - Idempotent replay: same key + same hash returns same payout
-//   - Conflict detection: same key + different hash returns 409 AlreadyExists
-//   - Validation: missing idempotency key / request hash
-//   - Concurrent requests with same key only create one payout
-//   - Different keys create different payouts
-//   - Rail-to-provider mapping
-//   - Idempotency key persistence verification
 package grpc_test
 
 import (
@@ -21,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bashkirian/fintech-project/services/orchestrator/internal/config"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/domain"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/postgres"
 	"github.com/bashkirian/fintech-project/services/orchestrator/internal/persistence/sqlcgen"
@@ -75,19 +62,22 @@ func setupTestDB(t *testing.T) (ctx context.Context, pool *pgxpool.Pool, cleanup
 	// Run migrations manually
 	migrationSQL := `
 	CREATE TABLE payouts (
-	    id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-	    state        text        NOT NULL CHECK (state IN ('created', 'queued', 'pending', 'processing', 'completed', 'succeeded', 'sent', 'failed', 'canceled')),
-	    amount_cents bigint      NOT NULL CHECK (amount_cents > 0),
-	    currency     text        NOT NULL,
-	    rail         text        NOT NULL CHECK (rail IN ('card', 'crypto')),
-	    provider     text        NULL CHECK (provider IN ('stripe', 'crypto_sim', 'mock_card')),
-	    external_id  text        NULL UNIQUE,
-	    created_at   timestamptz NOT NULL DEFAULT now(),
-	    updated_at   timestamptz NOT NULL DEFAULT now()
+	    id                   uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+	    state                text        NOT NULL CHECK (state IN ('created', 'queued', 'pending', 'processing', 'retrying', 'completed', 'succeeded', 'sent', 'failed', 'canceled')),
+	    amount_cents         bigint      NOT NULL CHECK (amount_cents > 0),
+	    currency             text        NOT NULL,
+	    rail                 text        NOT NULL CHECK (rail IN ('card', 'crypto')),
+	    provider             text        NULL CHECK (provider IN ('stripe', 'crypto_sim', 'mock_card')),
+	    external_id          text        NULL UNIQUE,
+	    global_retry_count   integer     NOT NULL DEFAULT 0,
+	    provider_retry_count integer     NOT NULL DEFAULT 0,
+	    created_at           timestamptz NOT NULL DEFAULT now(),
+	    updated_at           timestamptz NOT NULL DEFAULT now()
 	);
 
 	CREATE INDEX idx_payouts_state      ON payouts (state);
 	CREATE INDEX idx_payouts_created_at ON payouts (created_at);
+	CREATE INDEX idx_payouts_state_retry ON payouts(state, global_retry_count) WHERE state = 'retrying';
 
 	CREATE TABLE idempotency_keys (
 	    key          text        PRIMARY KEY,
@@ -133,7 +123,16 @@ func newTestServer(t *testing.T, pool *pgxpool.Pool) *payoutTestServer {
 	router := provider.NewRouter(reg, tracker, 10, zap.NewNop())
 	log := zap.NewNop()
 	routingAlgo := provider.RoutingPriority
-	orch := provider.NewOrchestrator(reg, router, tracker, log, routingAlgo)
+	orch := provider.NewOrchestrator(
+		reg,
+		router,
+		tracker,
+		nil, // no publisher for tests
+		nil, // no repo for tests
+		log,
+		routingAlgo,
+		config.RetryConfig{},
+	)
 	return &payoutTestServer{
 		pool:         pool,
 		orchestrator: orch,

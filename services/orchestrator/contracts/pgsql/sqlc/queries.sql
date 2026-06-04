@@ -1,6 +1,6 @@
 -- name: CreatePayout :one
-INSERT INTO payouts (state, amount_cents, currency, rail, provider, external_id)
-VALUES (@state, @amount_cents, @currency, @rail, sqlc.narg('provider')::text, @external_id)
+INSERT INTO payouts (state, amount_cents, currency, rail, provider, external_id, global_retry_count, provider_retry_count)
+VALUES (@state, @amount_cents, @currency, @rail, sqlc.narg('provider')::text, @external_id, 0, 0)
 RETURNING *;
 
 -- name: GetPayout :one
@@ -9,6 +9,17 @@ SELECT * FROM payouts WHERE id = @id;
 -- name: UpdatePayoutState :one
 UPDATE payouts
 SET state = @state, external_id = @external_id, provider = sqlc.narg('provider')::text, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: UpdatePayoutRetryState :one
+-- Updates payout state and increments retry counters for retry processing.
+UPDATE payouts
+SET state = @state,
+    global_retry_count = @global_retry_count,
+    provider_retry_count = @provider_retry_count,
+    provider = sqlc.narg('provider')::text,
+    updated_at = now()
 WHERE id = @id
 RETURNING *;
 

@@ -29,3 +29,28 @@ providers:
 # Routing algorithm configuration.
 routing:
   min_samples: 10  # minimum transactions before using success rate data
+
+# Kafka retry queue configuration.
+kafka:
+  brokers:
+    - localhost:9093
+  topics:
+    provider_retry: payout-retry-provider
+    global_retry: payout-retry-global
+    dlq: payout-retry-dlq
+  consumer_group: orchestrator-retry-worker
+
+# Retry configuration (Hyperswitch-inspired tiered delays with jitter).
+retry:
+  # Provider-level retry: quick retries for transient errors on same provider.
+  provider:
+    max_attempts: 3
+    delays: [1s, 5s, 15s]  # tiered delays (jitter added at runtime)
+  # Global retry: when all providers exhausted.
+  global:
+    max_attempts: 5
+    delays: [30s, 2m, 5m, 15m, 30m]  # tiered delays (jitter added at runtime)
+  # Jitter: random delay added to prevent thundering herd.
+  jitter:
+    min: 100ms
+    max_percent: 20  # add up to 20% random jitter to each delay

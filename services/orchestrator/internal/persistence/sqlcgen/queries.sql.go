@@ -16,7 +16,7 @@ UPDATE payouts
 SET state = 'canceled', updated_at = now()
 WHERE id = $1
   AND state = ANY($2::text[])
-RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at
+RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at, global_retry_count, provider_retry_count
 `
 
 type CancelPayoutIfCancelableParams struct {
@@ -39,14 +39,16 @@ func (q *Queries) CancelPayoutIfCancelable(ctx context.Context, arg CancelPayout
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GlobalRetryCount,
+		&i.ProviderRetryCount,
 	)
 	return i, err
 }
 
 const createPayout = `-- name: CreatePayout :one
-INSERT INTO payouts (state, amount_cents, currency, rail, provider, external_id)
-VALUES ($1, $2, $3, $4, $5::text, $6)
-RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at
+INSERT INTO payouts (state, amount_cents, currency, rail, provider, external_id, global_retry_count, provider_retry_count)
+VALUES ($1, $2, $3, $4, $5::text, $6, 0, 0)
+RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at, global_retry_count, provider_retry_count
 `
 
 type CreatePayoutParams struct {
@@ -78,12 +80,14 @@ func (q *Queries) CreatePayout(ctx context.Context, arg CreatePayoutParams) (Pay
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GlobalRetryCount,
+		&i.ProviderRetryCount,
 	)
 	return i, err
 }
 
 const findPayoutByExternalID = `-- name: FindPayoutByExternalID :one
-SELECT id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at FROM payouts WHERE external_id = $1
+SELECT id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at, global_retry_count, provider_retry_count FROM payouts WHERE external_id = $1
 `
 
 func (q *Queries) FindPayoutByExternalID(ctx context.Context, externalID *string) (Payout, error) {
@@ -99,6 +103,8 @@ func (q *Queries) FindPayoutByExternalID(ctx context.Context, externalID *string
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GlobalRetryCount,
+		&i.ProviderRetryCount,
 	)
 	return i, err
 }
@@ -120,7 +126,7 @@ func (q *Queries) GetIdempotencyKey(ctx context.Context, key string) (Idempotenc
 }
 
 const getPayout = `-- name: GetPayout :one
-SELECT id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at FROM payouts WHERE id = $1
+SELECT id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at, global_retry_count, provider_retry_count FROM payouts WHERE id = $1
 `
 
 func (q *Queries) GetPayout(ctx context.Context, id uuid.UUID) (Payout, error) {
@@ -136,6 +142,8 @@ func (q *Queries) GetPayout(ctx context.Context, id uuid.UUID) (Payout, error) {
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GlobalRetryCount,
+		&i.ProviderRetryCount,
 	)
 	return i, err
 }
@@ -165,11 +173,56 @@ func (q *Queries) TryInsertIdempotencyKey(ctx context.Context, arg TryInsertIdem
 	return i, err
 }
 
+const updatePayoutRetryState = `-- name: UpdatePayoutRetryState :one
+UPDATE payouts
+SET state = $1,
+    global_retry_count = $2,
+    provider_retry_count = $3,
+    provider = $4::text,
+    updated_at = now()
+WHERE id = $5
+RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at, global_retry_count, provider_retry_count
+`
+
+type UpdatePayoutRetryStateParams struct {
+	State              string    `json:"state"`
+	GlobalRetryCount   int32     `json:"global_retry_count"`
+	ProviderRetryCount int32     `json:"provider_retry_count"`
+	Provider           *string   `json:"provider"`
+	ID                 uuid.UUID `json:"id"`
+}
+
+// Updates payout state and increments retry counters for retry processing.
+func (q *Queries) UpdatePayoutRetryState(ctx context.Context, arg UpdatePayoutRetryStateParams) (Payout, error) {
+	row := q.db.QueryRow(ctx, updatePayoutRetryState,
+		arg.State,
+		arg.GlobalRetryCount,
+		arg.ProviderRetryCount,
+		arg.Provider,
+		arg.ID,
+	)
+	var i Payout
+	err := row.Scan(
+		&i.ID,
+		&i.State,
+		&i.AmountCents,
+		&i.Currency,
+		&i.Rail,
+		&i.Provider,
+		&i.ExternalID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GlobalRetryCount,
+		&i.ProviderRetryCount,
+	)
+	return i, err
+}
+
 const updatePayoutState = `-- name: UpdatePayoutState :one
 UPDATE payouts
 SET state = $1, external_id = $2, provider = $3::text, updated_at = now()
 WHERE id = $4
-RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at
+RETURNING id, state, amount_cents, currency, rail, provider, external_id, created_at, updated_at, global_retry_count, provider_retry_count
 `
 
 type UpdatePayoutStateParams struct {
@@ -197,6 +250,8 @@ func (q *Queries) UpdatePayoutState(ctx context.Context, arg UpdatePayoutStatePa
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GlobalRetryCount,
+		&i.ProviderRetryCount,
 	)
 	return i, err
 }
